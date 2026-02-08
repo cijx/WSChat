@@ -1,0 +1,29 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: chat-backend
+    environment:
+      ROOM_CLOSE_TIMEOUT_SECONDS: ${ROOM_CLOSE_TIMEOUT_SECONDS:-300}
+      ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS: ${ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS:-300}
+      GEOIP_COUNTRY_HEADERS: ${GEOIP_COUNTRY_HEADERS:-CF-IPCountry,X-Country-Code,X-Geo-Country}
+      GEOIP_BLOCKLIST_FILE: ${GEOIP_BLOCKLIST_FILE:-/app/app/blocked_countries.txt}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-ws://localhost:8000}
+        VITE_WS_PROTOCOL_MODE: ${VITE_WS_PROTOCOL_MODE:-auto}
+    container_name: chat-frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+    restart: unless-stopped

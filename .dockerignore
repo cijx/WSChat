@@ -1,0 +1,16 @@
+.git
+.gitignore
+.pycache_tmp
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.swp
+
+backend/.venv
+backend/__pycache__
+
+frontend/node_modules
+frontend/dist
+
+memory.md

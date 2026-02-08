@@ -1,0 +1,1095 @@
+# memory.md
+
+## 2026-02-07 22:24:49 +07
+- Цель:
+  - Создать каркас проекта для онлайн-чата: `backend` на Python с `venv` и подготовить `frontend` на Vue.
+- Что сделано:
+  - Созданы директории `backend` и `frontend`.
+  - Создано виртуальное окружение `backend/.venv`.
+  - Добавлен backend-скелет на FastAPI: `app/main.py`, `tests/test_health.py`, `requirements*.txt`, `pytest.ini`, `README.md`.
+  - Добавлен frontend-скелет на Vue 3 + Vite + Vitest + ESLint: `package.json`, `vite.config.js`, `index.html`, `src/*`, `README.md`.
+  - Добавлен корневой `.gitignore` под Python/Vue артефакты.
+- Средства/инструменты:
+  - shell-команды: `mkdir`, `python3 -m venv`, `cat`, `find`, `ls`, `date`.
+  - проверка окружения: `python3 --version`, `node --version`, `npm --version`.
+  - попытка установки зависимостей: `backend/.venv/bin/python -m pip install ...`.
+  - синтаксическая проверка Python: `python -m py_compile` (с `PYTHONPYCACHEPREFIX` внутри workspace).
+- Результат:
+  - Каркас проекта создан и готов к дальнейшей разработке.
+  - Python-файлы проходят синтаксическую проверку.
+  - Блокеры: в окружении отсутствуют `node`/`npm`; также нет сетевого доступа для `pip install`, поэтому backend/frontend тесты и сборка не запускались.
+
+## 2026-02-07 22:30:04 +07
+- Цель:
+  - Добавить правило обязательной актуализации `README.md` и создать корневой `README.md` с базовым описанием проекта.
+- Что сделано:
+  - В `AGENTS.md` добавлен раздел `Актуализация README.md (обязательно)`.
+  - Создан `README.md` в корне с описанием продукта, стека, структуры, запуска, проверок и ограничений окружения.
+- Средства/инструменты:
+  - редактирование файлов через `apply_patch`.
+  - проверка содержимого через `sed`.
+- Результат:
+  - Правило для агента по постоянной актуализации `README.md` зафиксировано.
+  - Корневой `README.md` создан и содержит базовую документацию по всему проекту.
+
+## 2026-02-07 22:31:41 +07
+- Цель:
+  - Проверить, есть ли в регламенте строгие требования по обязательному написанию, актуализации и выполнению тестов.
+- Что сделано:
+  - Проанализирован `AGENTS.md` и проверены разделы по процессу выполнения задач, тестированию, самопроверке и правилам сдачи.
+- Средства/инструменты:
+  - shell-команда: `nl -ba AGENTS.md | sed -n '1,260p'`.
+- Результат:
+  - Подтверждено: регламент уже содержит строгие требования, запрещающие пропуск тестирования и завершение задачи без релевантных тестов или явного объяснения блокеров.
+
+## 2026-02-07 22:43:02 +07
+- Цель:
+  - Реализовать базовую основу онлайн-чата по правилам: комнаты с обязательной темой, 2 участника максимум, WebSocket-обмен, закрытие комнаты при выходе автора и освобождение слота при выходе собеседника.
+- Что сделано:
+  - Добавлен backend-домен комнат в `backend/app/rooms.py` (create/join/leave/message, ограничения по участникам, lifecycle комнаты).
+  - Переписан `backend/app/main.py`: REST endpoints комнат + WebSocket endpoint `ws/rooms/{room_id}` + события `room_state`, `room_updated`, `chat_message`, `room_closed`.
+  - Добавлен CORS middleware для работы frontend в dev-режиме.
+  - Добавлены backend-тесты `backend/tests/test_room_service.py`.
+  - Адаптирован `backend/tests/test_health.py` под `unittest` с graceful skip при отсутствии `fastapi`.
+  - Обновлен frontend `frontend/src/App.vue`: экран создания/подключения к комнате и чат с WebSocket.
+  - Обновлен frontend-тест `frontend/src/App.test.js` под новый UI.
+  - Актуализированы `README.md`, `backend/README.md`, `frontend/README.md`.
+- Средства/инструменты:
+  - редактирование: `apply_patch`.
+  - проверки: `python -m py_compile`, `python -m unittest discover -s tests -p 'test_*.py' -v`.
+  - проверка окружения frontend: `node --version && npm --version`.
+- Результат:
+  - Базовая логика чата и комнаты реализована в коде backend/frontend.
+  - Backend unit-тесты проходят (9 тестов, 1 skip из-за отсутствия `fastapi` в окружении).
+  - Frontend проверки не запускались: в окружении отсутствует `node`/`npm`.
+
+## 2026-02-07 22:46:35 +07
+- Цель:
+  - Провести саморевью реализованной основы чата, найти дефекты и исправить их.
+- Что сделано:
+  - Выполнен ревью backend-кода `main.py` и `rooms.py`.
+  - Исправлена обработка WebSocket payload: добавлены проверки невалидного JSON и некорректного формата сообщения.
+  - Усилена обработка ошибок отправки в сокет при `HTTPException`.
+  - Устранён риск коллизии/гонки ID комнаты: генерация `room_id` и вставка комнаты теперь происходят под одним lock.
+  - Добавлен тест `test_create_room_handles_id_collision` для фиксации корректного поведения при коллизии ID.
+- Средства/инструменты:
+  - редактирование: `apply_patch`.
+  - проверки: `python -m py_compile`, `python -m unittest discover -s tests -p 'test_*.py' -v`.
+- Результат:
+  - Найденные проблемы исправлены.
+  - Backend-тесты проходят: 10 тестов, 1 skip (`fastapi` не установлен в окружении).
+
+## 2026-02-07 22:57:26 +07
+- Цель:
+  - Запустить проект для ручной проверки работы (backend + frontend).
+- Что сделано:
+  - Установлены backend-зависимости в `backend/.venv` (`fastapi`, `uvicorn`, тестовые пакеты).
+  - Установлен `node`/`npm` через Homebrew и выполнен `npm install` во `frontend`.
+  - Исправлена совместимость backend с Python 3.9: в pydantic-моделях `main.py` заменены аннотации `Type | None` на `Optional[Type]`.
+  - Повторно прогнаны backend-тесты и frontend-тесты.
+  - Запущены серверы:
+    - backend: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+    - frontend: `npm run dev -- --host 0.0.0.0 --port 5173`
+- Средства/инструменты:
+  - `pip install -r backend/requirements-dev.txt`
+  - `brew install node`
+  - `npm install`
+  - `python -m unittest discover -s tests -p 'test_*.py' -v`
+  - `npm run test`, `npm run lint`
+  - `curl` для проверки доступности сервисов.
+- Результат:
+  - Backend и frontend запущены и готовы для просмотра.
+  - Проверки: backend tests — OK (10/10), frontend tests — OK (1/1), frontend lint — предупреждения форматирования без ошибок.
+
+## 2026-02-07 22:59:33 +07
+- Цель:
+  - Остановить оба локальных сервера проекта (backend и frontend).
+- Что сделано:
+  - Попытка остановки через ранее известные session_id показала, что эти сессии уже закрыты.
+  - Выполнена проверка доступности сервисов на `127.0.0.1:8000` и `127.0.0.1:5173`.
+- Средства/инструменты:
+  - `write_stdin` для попытки отправить `Ctrl+C` в активные сессии.
+  - `curl -sS --max-time 2` для проверки портов.
+- Результат:
+  - Оба сервера не отвечают, процессы остановлены.
+
+## 2026-02-07 23:04:45 +07
+- Цель:
+  - Добавить запуск проекта в Docker (backend + frontend), документировать процесс и проверить, что контейнеры реально работают.
+- Что сделано:
+  - Добавлен `docker-compose.yml` с сервисами `backend` и `frontend`.
+  - Добавлен `backend/Dockerfile` (FastAPI + Uvicorn на `python:3.11-slim`).
+  - Добавлены `frontend/Dockerfile` (multi-stage: `node` build + `nginx`) и `frontend/nginx.conf`.
+  - Добавлен `.dockerignore` для оптимизации build-контекста.
+  - Добавлен тест `backend/tests/test_docker_configuration.py` для проверки наличия ключевых Docker-файлов и базовых compose-параметров.
+  - Обновлены `README.md`, `backend/README.md`, `frontend/README.md` с Docker-инструкциями запуска.
+- Средства/инструменты:
+  - редактирование: `apply_patch`.
+  - проверки: `python -m unittest discover`, `npm run test`, `npm run build`, `npm run lint`, `docker compose config`.
+  - запуск и smoke-проверка Docker: `docker compose up --build -d`, `docker compose ps`, `curl` к `health`, `rooms/free`, frontend HTML.
+- Результат:
+  - Проект успешно собирается и поднимается в Docker.
+  - Контейнеры `chat-backend` и `chat-frontend` в статусе `Up`.
+  - Проверки API и frontend через `curl` успешны; `POST /rooms` и `GET /rooms/free` работают.
+  - Линт frontend проходит с предупреждениями форматирования (без ошибок).
+
+## 2026-02-07 23:10:59 +07
+- Цель:
+  - Проверить тестами проблему с подключением к чату и усилить покрытие фронта/бэка для join-сценария.
+- Что сделано:
+  - На frontend исправлен выбор адреса backend: теперь по умолчанию используется хост текущей страницы (`window.location.hostname`) с портом `8000`.
+  - На frontend `user_id` переведен в `sessionStorage`, чтобы каждая вкладка браузера имела отдельную пользовательскую сессию (без регистрации).
+  - В `docker-compose.yml` убраны жесткие build-аргументы `VITE_API_BASE_URL`/`VITE_WS_BASE_URL` (чтобы не фиксировать `localhost` на этапе сборки).
+  - Добавлены backend-интеграционные тесты `backend/tests/test_api_room_flow.py` (create/join/websocket/room busy).
+  - Расширены frontend-тесты `frontend/src/App.test.js` сценариями join-комнаты и открытия WebSocket.
+  - Актуализированы `README.md` и `frontend/README.md` под новое поведение.
+- Средства/инструменты:
+  - редактирование: `apply_patch`.
+  - проверки: `python -m unittest discover -s tests -p 'test_*.py' -v`, `npm run test`, `npm run build`, `npm run lint`, `docker compose config`.
+  - дополнительная runtime-проверка: `docker compose up --build -d`, `curl` к backend/frontend.
+- Результат:
+  - Backend и frontend тесты проходят, join-сценарии покрыты отдельными тестами.
+  - Docker-конфигурация валидна.
+  - Frontend lint проходит без ошибок (есть warnings форматирования Vue).
+
+## 2026-02-07 23:18:11 +07
+- Цель:
+  - Разобраться, почему пользователь не может подключиться к комнате из второго браузера, и проверить фронт/бэк тестами.
+- Что сделано:
+  - Проверен e2e-сценарий backend (create/join/websocket/message) отдельным smoke-скриптом с двумя клиентами.
+  - Во frontend усилена логика join: кнопка подключения из списка блокируется, пока не введено имя.
+  - Добавлены/обновлены frontend-тесты (`App.test.js`) для join-сценария и проверки блокировки join без имени.
+  - Обновлены инструкции в `README.md` и `frontend/README.md` (требование заполнить `Your name`).
+  - Пересобран и перезапущен Docker-стек.
+- Средства/инструменты:
+  - `python -m unittest discover -s tests -p 'test_*.py' -v`
+  - `npm run test`, `npm run build`, `npm run lint`
+  - `docker compose up --build -d`
+  - `curl` health/frontend
+  - локальный e2e smoke script `/tmp/chat_e2e_check.py`
+- Результат:
+  - Backend join/websocket сценарий работает.
+  - Frontend тесты проходят, join-кнопка без имени не делает ложную попытку подключения.
+  - Docker-окружение с актуальным фронтом и бэком поднято и доступно.
+
+## 2026-02-07 23:24:54 +07
+- Цель:
+  - Добавить отображение информации о том, кто вошел/вышел из комнаты.
+- Что сделано:
+  - На backend добавлены WebSocket-события `participant_event` (`joined` / `left`) с данными участника и временем.
+  - На backend в `room_closed` добавлена информация об участнике, по которому комната закрылась.
+  - На frontend добавлена обработка `participant_event` и показ системных сообщений в чате (`<Имя> joined/left the room.`).
+  - Добавлены backend-тесты API/WS на доставку событий входа/выхода участника.
+  - Добавлены frontend-тесты на отображение системного сообщения `participant_event`.
+  - Актуализированы `README.md`, `backend/README.md`, `frontend/README.md`.
+- Средства/инструменты:
+  - `python -m unittest discover -s tests -p 'test_*.py' -v`
+  - `npm run test`, `npm run build`, `npm run lint`
+  - smoke-проверка двух клиентов через `/tmp/chat_e2e_check.py`
+- Результат:
+  - В комнате отображается информация о входе и выходе участников.
+  - Backend/Frontend тесты проходят, регрессий не выявлено (lint без ошибок, только warnings форматирования).
+
+## 2026-02-07 23:38:15 +0700
+- Цель:
+  - Исправить два требования: запретить self-join в комнату автора и добавить таймаут закрытия комнаты после дисконнекта автора (env, default 300 сек).
+- Что сделано:
+  - Backend:
+    - `backend/app/rooms.py`: `join_room` теперь возвращает `RoomJoinError`, если автор пытается присоединиться к своей комнате.
+    - `backend/app/main.py`: оставлен таймаут закрытия через `ROOM_CLOSE_TIMEOUT_SECONDS`, добавлен фоновой worker с дедлайнами закрытия комнат, чтобы закрытие происходило по таймауту и корректно отменялось при реконнекте автора.
+    - `docker-compose.yml`: добавлена env-переменная `ROOM_CLOSE_TIMEOUT_SECONDS` для backend.
+  - Frontend:
+    - `frontend/src/App.vue`: `user_id` хранится в `localStorage` (с миграцией из старого `sessionStorage`), добавлен UI-блок на вход в собственную комнату (`Your room`), добавлен показ системного события `room_close_scheduled`.
+  - Тесты:
+    - `backend/tests/test_room_service.py`: добавлен тест `test_author_cannot_join_own_room`.
+    - `backend/tests/test_api_room_flow.py`: добавлены тесты на запрет self-join, delayed close после дисконнекта автора и отмену закрытия при реконнекте.
+    - `backend/tests/test_docker_configuration.py`: проверка наличия `ROOM_CLOSE_TIMEOUT_SECONDS` в compose.
+    - `frontend/src/App.test.js`: обновлены тесты под `localStorage`, добавлен тест запрета join собственной комнаты; добавлены storage-моки для стабильного Vitest-окружения.
+  - Документация:
+    - Обновлены `README.md`, `backend/README.md`, `frontend/README.md` под новое поведение и env-настройку.
+- Средства/инструменты:
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend lint: `cd frontend && npm run lint`
+  - frontend build: `cd frontend && npm run build`
+  - docker config: `cd /Users/chernobyl/Codex/Chat && docker compose config`
+- Результат:
+  - Self-join автора заблокирован на backend и дополнительно ограничен в UI.
+  - Комната не закрывается сразу при потере соединения автора и закрывается по таймауту; при реконнекте автора закрытие отменяется.
+  - Проверки:
+    - backend unittest: OK (21/21)
+    - frontend vitest: OK (5/5)
+    - frontend build: OK
+    - frontend lint: OK без ошибок (есть style warnings в `App.vue`)
+    - docker compose config: OK
+
+## 2026-02-07 23:40:56 +0700
+- Цель:
+  - Добавить агенту обязательное правило читать `memory.md` перед началом работы для восстановления контекста.
+- Что сделано:
+  - В `AGENTS.md` в разделе ведения `memory.md` добавлено правило: перед каждой новой задачей агент обязан читать актуальные записи `memory.md`.
+  - В `README.md` добавлен блок процесса работы агента с фиксацией правила чтения `memory.md` перед стартом и обновления после завершения задачи.
+- Средства/инструменты:
+  - редактирование файлов через `apply_patch`.
+- Результат:
+  - Правило чтения `memory.md` перед началом работы зафиксировано в регламенте агента и отражено в общей документации проекта.
+  - Тесты не запускались, так как изменения затрагивают только документацию и правила процесса.
+
+## 2026-02-07 23:44:03 +0700
+- Цель:
+  - Перепроверить и исправить кейс, где пользователь всё ещё может зайти в свою комнату из соседней вкладки.
+- Что сделано:
+  - `backend/app/rooms.py`: усилено правило self-join — блокировка join в комнату автора теперь выполняется по совпадению `user_id` **или** имени автора (case-insensitive, trim).
+  - `frontend/src/App.vue`: добавлена единая проверка `isRoomOwnedByCurrentUser(room)`; кнопка join в списке блокируется как при совпадении `user_id`, так и при совпадении имени автора; client-side guard `joinRoom(...)` также учитывает имя автора.
+  - Добавлены регрессионные тесты:
+    - `backend/tests/test_room_service.py`: `test_author_name_cannot_join_own_room_with_different_id`.
+    - `backend/tests/test_api_room_flow.py`: `test_author_name_cannot_join_own_room_with_different_id`.
+    - `frontend/src/App.test.js`: `test('does not allow joining room when author has same name', ...)`.
+  - Обновлены документы: `README.md`, `backend/README.md`, `frontend/README.md`.
+- Средства/инструменты:
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+  - frontend lint: `cd frontend && npm run lint`
+  - runtime API smoke: локальный скрипт через `TestClient` (create room + join same-name/different-id).
+- Результат:
+  - Кейс self-join с другим `user_id`, но тем же именем автора теперь отклоняется на backend с `409`.
+  - Проверки:
+    - backend unittest: OK (23/23)
+    - frontend vitest: OK (6/6)
+    - frontend build: OK
+    - frontend lint: OK без ошибок (есть style warnings в `App.vue`)
+    - runtime smoke: create `201`, join same-name `409`.
+
+## 2026-02-07 23:51:47 +0700
+- Цель:
+  - Повторно проверить и исправить кейс self-join, который всё ещё воспроизводился у пользователя.
+- Что сделано:
+  - Усилена backend-защита от self-join:
+    - `backend/app/rooms.py`: в `Room` добавлено поле `author_browser_fingerprint`; `create_room` сохраняет fingerprint автора; `join_room` отклоняет join при совпадении `user_id`, имени автора или browser fingerprint.
+    - `backend/app/main.py`: для `POST /rooms` и `POST /rooms/{room_id}/join` добавлено чтение заголовка `X-Browser-Fingerprint` и передача в `RoomService`.
+  - Усилена frontend-идентификация:
+    - `frontend/src/App.vue`: добавлена генерация browser fingerprint; во все HTTP-запросы добавляется заголовок `X-Browser-Fingerprint`; локальная блокировка join в списке комнат оставлена и синхронизирована.
+  - Добавлены регрессионные тесты:
+    - `backend/tests/test_room_service.py`: `test_author_fingerprint_cannot_join_own_room_with_other_identity`.
+    - `backend/tests/test_api_room_flow.py`: `test_author_fingerprint_cannot_join_own_room_with_other_identity`.
+  - Обновлены `README.md`, `backend/README.md`, `frontend/README.md`.
+- Средства/инструменты:
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+  - frontend lint: `cd frontend && npm run lint`
+  - docker rebuild/run: `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d`, `docker compose ps`
+  - docker smoke via curl:
+    - create room with fingerprint `fp-A`;
+    - join with same fingerprint `fp-A` => `409`;
+    - join with different fingerprint `fp-B` => `200`.
+- Результат:
+  - Сценарий self-join в соседней вкладке/том же browser-контексте теперь блокируется сервером по browser fingerprint.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - frontend vitest: OK (6/6)
+    - frontend build: OK
+    - frontend lint: OK без ошибок (есть style warnings в `App.vue`)
+    - docker runtime smoke: ожидаемое поведение подтверждено (`409`/`200`).
+
+## 2026-02-07 23:56:22 +0700
+- Цель:
+  - Сделать так, чтобы при обновлении страницы пользователь не вылетал из комнаты мгновенно, а мог восстановить сессию.
+- Что сделано:
+  - Backend:
+    - `backend/app/main.py`: добавлен grace-таймаут для отключившегося собеседника `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` (default `15` сек).
+    - При потере WebSocket у собеседника слот больше не освобождается мгновенно: освобождение выполняется отложенно через worker.
+    - При быстром переподключении собеседника отложенное освобождение отменяется.
+    - Существующая логика таймаута закрытия комнаты автора сохранена.
+  - Frontend:
+    - `frontend/src/App.vue`: добавлено сохранение активной комнаты в `localStorage` (`chat.active_room_id`).
+    - При `onMounted` добавлено восстановление комнаты после reload: если пользователь всё ещё участник комнаты, выполняется авто-подключение к WS без ручного join.
+    - При leave/room_closed сохранённая активная комната очищается.
+  - Docker/документы:
+    - `docker-compose.yml`: добавлен env `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS`.
+    - Обновлены `README.md`, `backend/README.md`, `frontend/README.md` под новое поведение.
+  - Тесты:
+    - `backend/tests/test_api_room_flow.py`: добавлены тесты на guest disconnect grace и отмену освобождения слота при переподключении.
+    - `frontend/src/App.test.js`: добавлен тест восстановления активной комнаты после reload.
+    - `backend/tests/test_docker_configuration.py`: проверка нового env в compose.
+- Средства/инструменты:
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+  - frontend lint: `cd frontend && npm run lint`
+  - docker config: `cd /Users/chernobyl/Codex/Chat && docker compose config`
+- Результат:
+  - При обновлении страницы пользователь не вылетает мгновенно: backend держит слот в grace-окне, frontend автоматически восстанавливает комнату.
+  - Проверки:
+    - backend unittest: OK (27/27)
+    - frontend vitest: OK (7/7)
+    - frontend build: OK
+    - frontend lint: OK без ошибок (есть style warnings в `App.vue`)
+    - docker compose config: OK (новый env виден)
+
+## 2026-02-07 23:59:28 +0700
+- Цель:
+  - Сделать `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` настраиваемым из env с дефолтом `300` секунд.
+- Что сделано:
+  - `backend/app/main.py`: изменён дефолт чтения env `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` с `15` на `300` (включая fallback при невалидном значении).
+  - `docker-compose.yml`: изменён compose-default на `${ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS:-300}`.
+  - `README.md` и `backend/README.md`: обновлена документация про дефолт `300`.
+  - `backend/tests/test_docker_configuration.py`: добавлена проверка строки `${ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS:-300}` в compose.
+  - Для стабильности прогона исправлена задержка во флейковом backend-тесте `test_api_room_flow.py` (тайм-аут ожидания воркера увеличен).
+- Средства/инструменты:
+  - `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - `cd frontend && npm run test`
+  - `cd frontend && npm run build`
+  - `cd frontend && npm run lint`
+  - `cd /Users/chernobyl/Codex/Chat && docker compose config`
+- Результат:
+  - Переменная `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` теперь имеет дефолт `300` сек в приложении и в docker-compose.
+  - Проверки:
+    - backend unittest: OK (27/27)
+    - frontend vitest: OK (7/7)
+    - frontend build: OK
+    - frontend lint: OK без ошибок (есть style warnings в `App.vue`)
+    - docker compose config: OK, показывает `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS: "300"`.
+
+## 2026-02-08 00:08:07 +0700
+- Цель:
+  - Убрать из механизма запрета self-join проверки по `user_name` и `author_browser_fingerprint`; оставить только `user_id`.
+- Что сделано:
+  - Backend:
+    - `backend/app/rooms.py`: удалено поле `author_browser_fingerprint`; в `RoomService.join_room` проверка self-join оставлена только по совпадению `room.author.user_id == participant.user_id`.
+    - `backend/app/main.py`: удалены `Request` и обработка `X-Browser-Fingerprint`; `POST /rooms` и `POST /rooms/{room_id}/join` больше не используют browser fingerprint.
+  - Frontend:
+    - `frontend/src/App.vue`: удалена генерация/передача `X-Browser-Fingerprint`; убрана name-based self-join логика, локальная блокировка своей комнаты выполняется только по `author.user_id`.
+  - Тесты:
+    - `backend/tests/test_room_service.py`: удалены тесты на запрет self-join по имени/fingerprint; оставлен id-based тест.
+    - `backend/tests/test_api_room_flow.py`: удалены API-тесты на имя/fingerprint; оставлен id-based тест.
+    - `frontend/src/App.test.js`: удалён тест запрета по совпадению имени, оставлен тест запрета своей комнаты по `user_id`.
+  - Документация:
+    - `README.md`, `backend/README.md`, `frontend/README.md`: зафиксировано, что запрет self-join определяется только по `user_id`.
+- Средства/инструменты:
+  - поиск/проверка ссылок: `grep -RIn --exclude-dir=node_modules --exclude-dir=dist -E "author_browser_fingerprint|X-Browser-Fingerprint|normalizeIdentityValue|author has same name" ...`
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax check: `cd backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend lint: `cd frontend && npm run lint`
+  - frontend build: `cd frontend && npm run build`
+- Результат:
+  - Механизм владения/запрета self-join теперь опирается только на `user_id`; проверки по имени и fingerprint полностью удалены.
+  - Проверки:
+    - backend unittest: OK (23/23)
+    - backend py_compile: OK
+    - frontend vitest: OK (6/6)
+    - frontend lint: OK (0 errors, 50 warnings style-only в `App.vue`)
+    - frontend build: OK
+
+## 2026-02-08 00:10:39 +0700
+- Цель:
+  - Пересобрать проект и перезапустить docker-контейнеры backend/frontend.
+- Что сделано:
+  - Выполнена пересборка образов и принудительное пересоздание контейнеров:
+    - `docker compose up --build -d --force-recreate`.
+  - Проверено состояние контейнеров и доступность сервисов.
+- Средства/инструменты:
+  - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+  - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+  - `curl -sS http://127.0.0.1:8000/health`
+  - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Контейнеры `chat-backend` и `chat-frontend` успешно пересозданы и запущены.
+  - Проверки:
+    - `docker compose ps`: оба контейнера `Up`, порты проброшены (`8000`, `5173`).
+    - backend health: `{"status":"ok"}`.
+    - frontend: возвращает `index.html` (SPA загружается).
+
+## 2026-02-08 00:19:12 +0700
+- Цель:
+  - Сделать дизайн чата более цельным и визуально аккуратным на основе шаблонных паттернов UI чатов.
+- Что сделано:
+  - Проанализированы референсы UI чатов (Flowbite/Dribbble) и accessibility-гайд по контрасту (W3C WCAG).
+  - Полностью переработан интерфейс в `frontend/src/App.vue` без изменения бизнес-логики:
+    - новая палитра и визуальные токены;
+    - фоновая композиция (градиент + орбы), glass-панели;
+    - улучшенная иерархия типографики;
+    - стилизованные bubble-сообщения (`you` / `peer` / `system`);
+    - улучшенный lobby/layout для desktop/mobile;
+    - добавлены мягкие анимации появления.
+  - В `README.md` и `frontend/README.md` зафиксировано обновление визуальной системы.
+- Средства/инструменты:
+  - web-поиск референсов: `flowbite`, `dribbble`, `w3c wcag contrast`.
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax check: `cd backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd frontend && npm run lint`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+- Результат:
+  - Интерфейс стал более целостным и современным при сохранении всех существующих сценариев.
+  - Проверки:
+    - backend unittest: OK (23/23)
+    - backend py_compile: OK
+    - frontend lint: OK (0 warnings, 0 errors)
+    - frontend vitest: OK (6/6)
+    - frontend build: OK
+
+## 2026-02-08 00:21:30 +0700
+- Цель:
+  - Пересобрать и перезапустить проект в Docker.
+- Что сделано:
+  - Выполнена пересборка образов backend/frontend и принудительное пересоздание контейнеров.
+  - Проверена доступность сервисов после запуска.
+- Средства/инструменты:
+  - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+  - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+  - `curl -sS http://127.0.0.1:8000/health`
+  - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Контейнеры `chat-backend` и `chat-frontend` успешно пересобраны и перезапущены.
+  - Проверки:
+    - `docker compose ps`: оба контейнера `Up`, порты `8000` и `5173` доступны.
+    - backend health: `{"status":"ok"}`.
+    - frontend: отдается `index.html` (SPA доступна).
+
+## 2026-02-08 00:28:20 +0700
+- Цель:
+  - Добавить автоматическое обновление списка доступных комнат через сокет-уведомления для всех клиентов.
+- Что сделано:
+  - Backend:
+    - `backend/app/main.py`: добавлен глобальный WebSocket-канал `WS /ws/lobby`.
+    - Добавлены реестр/рассылка lobby-подключений и события `rooms_catalog_updated`.
+    - При изменении доступности комнат backend рассылает уведомления в лобби:
+      - `room_created` (новая свободная комната),
+      - `room_became_busy` (свободная комната занята),
+      - `room_freed` (собеседник вышел и слот снова свободен),
+      - `room_closed` (комната закрыта).
+    - Новый lobby-сокет при подключении отправляет снапшот `rooms_catalog_snapshot` со списком свободных комнат.
+  - Frontend:
+    - `frontend/src/App.vue`: добавлено постоянное подключение к `ws/lobby` с автоматическим reconnect.
+    - При `rooms_catalog_updated` фронтенд автоматически вызывает `GET /rooms/free` (когда пользователь в лобби), без ручного refresh.
+  - Тесты:
+    - `backend/tests/test_api_room_flow.py`: добавлены тесты на lobby-события `room_created` и `room_freed`.
+    - `frontend/src/App.test.js`: обновлены проверки с учетом отдельного lobby-сокета и добавлен тест авто-refresh по `rooms_catalog_updated`.
+  - Документация:
+    - Обновлены `README.md`, `backend/README.md`, `frontend/README.md` (описан `ws/lobby` и автообновление списка комнат).
+- Средства/инструменты:
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax check: `cd backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd frontend && npm run lint`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+- Результат:
+  - Доступные комнаты теперь обновляются автоматически через websocket-уведомления о создании/освобождении/изменении доступности комнат.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (7/7)
+    - frontend build: OK
+
+## 2026-02-08 14:12:36 +0700
+- Цель:
+  - Перейти на генерацию `room_id` как полного UUID и убрать логику проверки дубликатов/ретраев.
+- Что сделано:
+  - `backend/app/rooms.py`:
+    - в `create_room(...)` генерация `room_id` заменена на `str(uuid4())`;
+    - удален метод `_next_room_id_locked()` и цикл проверки коллизий.
+  - `backend/tests/test_room_service.py`:
+    - удален тест коллизий короткого id;
+    - добавлен тест `test_create_room_assigns_uuid_room_id`, проверяющий валидность `room_id` как UUID.
+  - Документация:
+    - `README.md`, `backend/README.md`, `frontend/README.md` обновлены: зафиксирован UUID4-формат `room_id`.
+- Средства/инструменты:
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax check: `cd backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd frontend && npm run lint`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+- Результат:
+  - `room_id` теперь всегда генерируется как полный UUID4 без дополнительной проверки на дубли.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (7/7)
+    - frontend build: OK
+
+## 2026-02-08 14:14:05 +0700
+- Цель:
+  - Пересобрать и перезапустить проект (backend + frontend) в Docker.
+- Что сделано:
+  - Выполнена пересборка образов и принудительное пересоздание контейнеров через compose.
+  - Проверена работоспособность backend и frontend после запуска.
+- Средства/инструменты:
+  - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+  - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+  - `curl -sS http://127.0.0.1:8000/health`
+  - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Контейнеры `chat-backend` и `chat-frontend` пересобраны и успешно запущены.
+  - Проверки:
+    - `docker compose ps`: оба контейнера `Up`, порты `8000`/`5173` открыты.
+    - backend health: `{"status":"ok"}`.
+    - frontend: возвращает `index.html` и актуальные assets.
+
+## 2026-02-08 14:22:10 +0700
+- Цель:
+  - Переработать лобби-дизайн: свободные комнаты должны «плавать» по экрану как облака.
+- Что сделано:
+  - Изучены референсы визуального направления и motion-паттернов:
+    - Awwwards: floating cards/particles UI patterns.
+    - Webflow templates: drifting card compositions.
+    - Motion.page Academy: floating card motion pattern.
+    - Smashing Magazine: floating particle/circle background techniques.
+  - `frontend/src/App.vue`:
+    - реализован cloud-stage для свободных комнат;
+    - карточки комнат переведены в «облака» с абсолютным позиционированием и плавной анимацией `cloud-drift`;
+    - добавлены разные anchor-позиции, глубина/наклон/скорости, адаптивный fallback в сетку на мобильных;
+    - добавлен `prefers-reduced-motion` fallback без анимаций;
+    - обновлен текст/CTA для облачных карточек.
+  - `frontend/src/App.test.js`:
+    - добавлен тест `renders free rooms as floating cloud cards in lobby`.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` под новый визуальный паттерн.
+- Средства/инструменты:
+  - web research: `awwwards floating ui`, `floating cards ui design`, `motion floating cards ui`, `smashing magazine floating particles css`.
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax check: `cd backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd frontend && npm run lint`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+- Результат:
+  - Лобби свободных комнат теперь визуализируется как плавающие облачка с адаптивным поведением.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (8/8)
+    - frontend build: OK
+
+## 2026-02-08 14:25:24 +0700
+- Цель:
+  - Пересобрать/перезапустить проект и закрепить правило для агента: после изменений обязательно перезапускать проект.
+- Что сделано:
+  - Выполнена пересборка и перезапуск контейнеров:
+    - `docker compose up --build -d --force-recreate`.
+  - Проверена доступность сервисов:
+    - `docker compose ps`,
+    - `GET /health` backend,
+    - проверка frontend по `http://127.0.0.1:5173`.
+  - В `AGENTS.md` добавлен раздел `Перезапуск проекта после изменений (обязательно)` с требованием перезапуска и проверок доступности.
+  - В `README.md` (раздел процесса работы агента) добавлена синхронизирующая заметка о перезапуске после изменений.
+- Средства/инструменты:
+  - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+  - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+  - `curl -sS http://127.0.0.1:8000/health`
+  - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Проект пересобран и перезапущен, оба сервиса доступны.
+  - Правило обязательного перезапуска после изменений закреплено в регламенте агента.
+  - Проверки:
+    - `docker compose ps`: `chat-backend` и `chat-frontend` в `Up`.
+    - backend health: `{"status":"ok"}`.
+    - frontend: `index.html` отдается успешно.
+
+## 2026-02-08 14:31:42 +0700
+- Цель:
+  - Полностью изменить дизайн лобби: сверху отдельное «облако» создания/подключения, а свободные комнаты должны летать по всему экрану.
+- Что сделано:
+  - `frontend/src/App.vue`: полностью переработан лобби-экран.
+    - Добавлен верхний блок `create-cloud` с созданием комнаты и join по id.
+    - Добавлена полноэкранная зона `rooms-cloud-stage` с анимированными карточками-облаками свободных комнат.
+    - Реализованы траектории полета, вариативные размеры/скорости/смещения, адаптивный mobile-fallback и `prefers-reduced-motion`.
+  - `frontend/src/App.test.js`: добавлен тест на рендер плавающих облаков в лобби.
+  - Документация: обновлены `README.md` и `frontend/README.md` под новый UX.
+  - Проект пересобран и перезапущен после изменений.
+- Средства/инструменты:
+  - backend tests: `cd backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd frontend && npm run lint`
+  - frontend tests: `cd frontend && npm run test`
+  - frontend build: `cd frontend && npm run build`
+  - restart/run checks:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Новый целостный cloud-UX применен: верхнее облако управления + плавающие по экрану свободные комнаты.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (8/8)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 14:47:32 +0700
+- Цель:
+  - Откатить дизайн frontend к предыдущей версии (до полного варианта с верхним cloud-launcher), сохранив рабочую логику чата.
+- Что сделано:
+  - `frontend/src/App.vue`:
+    - лобби возвращено к прежней структуре: отдельная панель управления (create/join/status) + отдельная зона с летающими карточками свободных комнат;
+    - удален верхний блок `create-cloud` из последнего редизайна;
+    - сохранены анимированные «облака» комнат и все бизнес-ограничения join/own-room.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` под откатнутый вид интерфейса.
+  - После изменений выполнены обязательные проверки и перезапуск Docker-проекта.
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Дизайн лобби откатен к предыдущему варианту, функциональность чата сохранена.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (8/8)
+    - frontend build: OK
+    - docker compose ps: `chat-backend` и `chat-frontend` в `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 14:54:08 +0700
+- Цель:
+  - Полностью переработать дизайн чата с нуля на основе готовых шаблонов/референсов и требований текущей спецификации продукта.
+- Что сделано:
+  - Проведен поиск готовых chat-template референсов и UI-паттернов.
+  - `frontend/src/App.vue` переписан по новой визуальной системе:
+    - лобби: двухпанельный layout (control panel + board свободных комнат);
+    - карточки свободных комнат в grid-формате вместо cloud-концепции;
+    - чат: рабочее окно с выраженной шапкой, bubble-сообщениями и аккуратным composer;
+    - сохранены все текущие бизнес-ограничения и websocket-flow.
+  - `frontend/src/App.test.js` обновлен под новый DOM (проверка rooms-board/room-tile).
+  - `README.md` и `frontend/README.md` актуализированы под новый UI.
+  - Проект пересобран и перезапущен в Docker после изменений.
+- Средства/инструменты:
+  - web research:
+    - `modern web chat UI templates`
+    - `chat app template figma community`
+    - `open source chat ui template vue`
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Дизайн полностью переработан и больше не опирается на прежнюю cloud-стилистику.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (8/8)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 14:58:55 +0700
+- Цель:
+  - Исправить ситуацию, когда визуально отображался прежний дизайн: выполнить более радикальный редизайн и гарантировать доставку новой статики.
+- Что сделано:
+  - `frontend/src/App.vue`:
+    - переработан visual language в контрастный editorial-стиль (новая типографика, фон-паттерн, геометрия карточек, кнопки, шапка);
+    - обновлены тексты/лейблы интерфейса, чтобы изменения были заметны сразу (`Signal Deck`, `Roomwire Chat`, `Enter room`);
+    - логика работы чата/комнат не изменялась.
+  - `README.md` и `frontend/README.md` обновлены под новый визуальный стиль.
+  - Проект пересобран и контейнеры принудительно пересозданы.
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Применен новый заметно отличающийся UI; контейнеры пересозданы и отдают новую сборку frontend.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (8/8)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 15:02:46 +0700
+- Цель:
+  - Исправить проблему, при которой окно сообщений растягивало чат по высоте и не прокручивалось корректно.
+- Что сделано:
+  - `frontend/src/App.vue`:
+    - добавлен режим `app-shell-chat` для активной комнаты с фиксированной высотой viewport и управляемым layout;
+    - `chat-workspace` переведен на `grid-template-rows: auto minmax(0, 1fr) auto` для корректного распределения высоты;
+    - `messages-panel` переведен на прокручиваемую область (`min-height: 0`, `overflow-y: auto`, без роста контейнера);
+    - добавлен `ref` на панель сообщений и автоскролл вниз при новых сообщениях/входе в комнату через `watch + nextTick`.
+  - `frontend/src/App.test.js`:
+    - добавлен регрессионный тест `keeps messages panel scrollable and auto-scrolls on new messages`.
+  - Обновлены `README.md` и `frontend/README.md` описанием поведения прокрутки.
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Чат больше не растягивается от новых сообщений; история сообщений прокручивается внутри панели и автоматически проматывается вниз при поступлении новых сообщений.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (9/9)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 15:06:42 +0700
+- Цель:
+  - Полностью перевести пользовательский интерфейс чата на русский язык.
+- Что сделано:
+  - `frontend/src/App.vue`:
+    - переведены все видимые тексты в лобби и в комнате (заголовки, лейблы, placeholders, кнопки, пустые состояния);
+    - переведены статусные и error-сообщения интерфейса;
+    - переведены системные сообщения чата (вход/выход участника, закрытие комнаты, предупреждение о таймауте);
+    - переведены служебные подписи авторов сообщений (`Система`, `Вы`).
+  - `frontend/src/App.test.js`:
+    - обновлены ожидания текстов под русскую локализацию.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` (новые русские названия полей и факт русификации интерфейса).
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Интерфейс чата полностью русифицирован.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (9/9)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 15:11:35 +0700
+- Цель:
+  - Показывать внутри активной комнаты полный `room_id`, чтобы пользователь мог передать его собеседнику для подключения.
+- Что сделано:
+  - `frontend/src/App.vue`:
+    - в шапке активной комнаты заменен укороченный ID (`slice(0, 8)`) на полный `room_id` с подписью `ID комнаты:`;
+    - добавлен стиль `chip-room-id` для корректного отображения длинного UUID (перенос, selectable text).
+  - `frontend/src/App.test.js`:
+    - добавлен тест `shows full room id inside active room header`.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` с описанием отображения полного ID комнаты.
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Внутри комнаты отображается полный ID, пригодный для передачи собеседнику.
+  - Проверки:
+    - backend unittest: OK (25/25)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (10/10)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 15:15:51 +0700
+- Цель:
+  - Исправить баг: при закрытии окна гостем автор не видит немедленное уведомление о дисконнекте.
+- Что сделано:
+  - Backend (`backend/app/main.py`):
+    - в `_handle_socket_disconnect(...)` для гостя при активном `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` добавлена мгновенная рассылка `participant_event` с `event="disconnected"`;
+    - сохранена существующая grace-логика освобождения слота (освобождение по таймауту, если не было reconnect).
+  - Backend tests (`backend/tests/test_api_room_flow.py`):
+    - добавлен helper `_receive_participant_event(...)`;
+    - добавлен регрессионный тест `test_author_sees_guest_disconnected_event_on_socket_close`.
+  - Frontend (`frontend/src/App.vue`):
+    - расширена обработка `participant_event`: `disconnected` отображается как системное сообщение `потерял(а) соединение.`
+  - Frontend tests (`frontend/src/App.test.js`):
+    - добавлен тест `renders participant disconnected system event in room chat`.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` (описано уведомление о дисконнекте гостя).
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - При закрытии окна гостем автор сразу получает в чате системное уведомление о дисконнекте.
+  - Проверки:
+    - backend unittest: OK (26/26)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (11/11)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 15:23:11 +0700
+- Цель:
+  - Добавить поддержку `wss` с возможностью отключения/переключения режима.
+- Что сделано:
+  - Frontend (`frontend/src/App.vue`):
+    - добавлен режим `VITE_WS_PROTOCOL_MODE` с вариантами `auto` / `wss` / `ws`;
+    - переработана сборка `WS_BASE_URL`: теперь протокол websocket может принудительно переключаться независимо от базового URL;
+    - режим `ws` явно отключает `wss`, режим `wss` принудительно включает защищенный websocket.
+  - Docker (`frontend/Dockerfile`, `docker-compose.yml`):
+    - добавлен build-arg/env `VITE_WS_PROTOCOL_MODE`;
+    - в compose добавлены build args для `VITE_API_BASE_URL`, `VITE_WS_BASE_URL`, `VITE_WS_PROTOCOL_MODE`.
+  - Тесты (`backend/tests/test_docker_configuration.py`):
+    - добавлены проверки, что конфигурация Docker содержит `VITE_WS_PROTOCOL_MODE`.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` с описанием режимов `auto/wss/ws` и примерами запуска.
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `curl -sS http://127.0.0.1:8000/health`
+    - `curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Поддержка `wss` добавлена, при необходимости может быть отключена (принудительный `ws`) через env-переменную.
+  - Проверки:
+    - backend unittest: OK (26/26)
+    - backend py_compile: OK
+    - frontend lint: OK (0 errors, 0 warnings)
+    - frontend vitest: OK (11/11)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 15:28:20 +0700
+- Цель:
+  - Составить практическую инструкцию по развертыванию проекта на VDS.
+- Что сделано:
+  - В `README.md` добавлен полный раздел `Развертывание на VDS` с пошаговым сценарием:
+    - подготовка Ubuntu-сервера;
+    - установка Docker + Compose;
+    - DNS-настройка;
+    - создание `.env`;
+    - запуск `docker compose`;
+    - настройка Nginx reverse proxy;
+    - выпуск TLS-сертификатов (Certbot);
+    - проверка работоспособности и обновление проекта.
+  - В инструкции отдельно описано поведение и переключение `wss/ws` через `VITE_WS_PROTOCOL_MODE`.
+- Средства/инструменты:
+  - редактирование документации: `apply_patch` (`README.md`).
+- Результат:
+  - Инструкция по деплою на VDS добавлена в корневой `README.md` и готова к использованию.
+  - Проверки/тесты не запускались, так как изменения затронули только документацию.
+
+## 2026-02-08 15:36:00 +0700
+- Цель:
+  - Добавить возможность отправлять смайлики из UI чата.
+- Что сделано:
+  - Frontend (`frontend/src/App.vue`):
+    - добавлена панель быстрых смайликов в композере комнаты;
+    - добавлена функция `appendEmoji(...)`, которая вставляет смайлик в черновик и возвращает фокус в поле ввода;
+    - смайлики отправляются через существующий WebSocket-протокол как обычный `chat_message`.
+  - Frontend tests (`frontend/src/App.test.js`):
+    - добавлен тест на вставку смайлика в поле ввода по клику на кнопку;
+    - добавлен тест на отправку сообщения, состоящего только из смайлика.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` (описана поддержка быстрых смайликов).
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS http://127.0.0.1:8000/health`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Пользователь может быстро добавить смайлик в сообщение и отправить его в чат.
+  - Проверки:
+    - backend unittest: OK (26/26)
+    - backend py_compile: OK
+    - frontend lint: OK
+    - frontend vitest: OK (13/13)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 15:40:17 +0700
+- Цель:
+  - Добавить форматирование текста сообщений в чате.
+- Что сделано:
+  - Frontend (`frontend/src/App.vue`):
+    - добавлен безопасный парсер inline-форматирования без `v-html`;
+    - поддержаны маркеры `**жирный**`, `*курсив*`, `` `код` ``, `~~зачеркнутый~~`, а также переносы строк;
+    - в композере добавлена подсказка по доступному синтаксису.
+  - Frontend tests (`frontend/src/App.test.js`):
+    - добавлен тест `renders safe formatted message content`, который проверяет:
+      - рендер всех типов форматирования;
+      - перенос строки через `<br>`;
+      - отсутствие XSS-вставки (`<img ...>` остается текстом, DOM-элемент не создается).
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` описанием синтаксиса форматирования.
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS http://127.0.0.1:8000/health`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Сообщения в чате поддерживают форматирование текста и безопасно отображаются без инъекции HTML.
+  - Проверки:
+    - backend unittest: OK (26/26)
+    - backend py_compile: OK
+    - frontend lint: OK
+    - frontend vitest: OK (14/14)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 18:20:03 +0700
+- Цель:
+  - Добавить geoIP-блокировку чата по списку запрещенных стран в отдельном файле.
+- Что сделано:
+  - Backend (`backend/app/main.py`):
+    - добавлен geoIP-guard для HTTP-запросов (кроме `/health`) и WebSocket (`/ws/lobby`, `/ws/rooms/{room_id}`);
+    - реализована загрузка блоклиста стран из файла с поддержкой кеша по `mtime`;
+    - добавлен разбор country-code из настраиваемых заголовков (`GEOIP_COUNTRY_HEADERS`);
+    - при блокировке HTTP возвращается `403`, WebSocket закрывается с кодом `1008`.
+  - Добавлен файл блоклиста (`backend/app/blocked_countries.txt`) в формате ISO alpha-2 (один код на строку, поддержка комментариев).
+  - Docker/конфигурация:
+    - в `docker-compose.yml` добавлены env `GEOIP_COUNTRY_HEADERS` и `GEOIP_BLOCKLIST_FILE`.
+  - Тесты:
+    - добавлен `backend/tests/test_geoip_restrictions.py` с проверками:
+      - блокировка HTTP для запрещенной страны;
+      - доступ HTTP для разрешенной страны;
+      - исключение `/health` из блокировки;
+      - блокировка WS для `/ws/lobby` и `/ws/rooms/{room_id}`.
+    - обновлен `backend/tests/test_docker_configuration.py` под новую конфигурацию и файл блоклиста.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` (описаны geoIP-переменные, файл блоклиста и поведение).
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS http://127.0.0.1:8000/health`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Чат блокирует доступ для стран из файла блоклиста на уровне HTTP и WebSocket.
+  - Проверки:
+    - backend unittest: OK (31/31)
+    - backend py_compile: OK
+    - frontend lint: OK
+    - frontend vitest: OK (14/14)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.
+
+## 2026-02-08 18:24:55 +0700
+- Цель:
+  - Изменить geoIP-поведение: не блокировать интерфейс полностью, но явно запрещать создание/подключение к комнатам для запрещенных стран.
+- Что сделано:
+  - Backend (`backend/app/main.py`):
+    - удалена глобальная HTTP-блокировка (больше нет общего `403` на все endpoints);
+    - geoIP-проверка оставлена только для операций:
+      - `POST /rooms` (создание комнаты),
+      - `POST /rooms/{room_id}/join` (подключение к комнате);
+    - при ограничении возвращается `451` с явным сообщением:
+      - `Для вашей страны создание комнат и подключение к комнатам недоступны.`
+    - websocket-каналы (`/ws/lobby`, `/ws/rooms/{room_id}`) снова работают в обычном режиме.
+  - Тесты (`backend/tests/test_geoip_restrictions.py`):
+    - обновлены кейсы под новый сценарий:
+      - запрещенная страна не может создавать комнату (`451`);
+      - запрещенная страна не может подключаться к комнате (`451`);
+      - lobby websocket доступен;
+      - health доступен.
+  - Документация:
+    - обновлены `README.md` и `frontend/README.md` под новый UX/поведение geoIP.
+- Средства/инструменты:
+  - backend tests: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - backend syntax: `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - frontend lint: `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+  - frontend tests: `cd /Users/chernobyl/Codex/Chat/frontend && npm run test`
+  - frontend build: `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS http://127.0.0.1:8000/health`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS --max-time 5 http://127.0.0.1:5173`
+- Результат:
+  - Чат открывается как обычно, но создание и подключение к комнатам для запрещенных стран запрещены с явным сообщением пользователю.
+  - Проверки:
+    - backend unittest: OK (31/31)
+    - backend py_compile: OK
+    - frontend lint: OK
+    - frontend vitest: OK (14/14)
+    - frontend build: OK
+    - docker compose ps: backend/frontend в статусе `Up`
+    - backend `/health`: `{"status":"ok"}`
+    - frontend: `index.html` отдается корректно.

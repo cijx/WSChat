@@ -1,0 +1,7 @@
+# GeoIP country blocklist (ISO 3166-1 alpha-2 codes).
+# One country code per line.
+# Lines starting with '#' are comments.
+#
+# Example:
+# KP
+# IR
