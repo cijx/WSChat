@@ -1093,3 +1093,29 @@
     - docker compose ps: backend/frontend в статусе `Up`
     - backend `/health`: `{"status":"ok"}`
     - frontend: `index.html` отдается корректно.
+
+## 2026-02-09 00:55:17 +0700
+- Цель:
+  - Создать удаленный GitHub-репозиторий `WSChat` и запушить в него текущий проект.
+- Что сделано:
+  - установлен GitHub CLI (`gh`);
+  - выполнена авторизация GitHub через device flow;
+  - инициализирован git-репозиторий в `/Users/chernobyl/Codex/Chat` (`main`);
+  - добавлены файлы проекта и создан initial commit;
+  - создан удаленный GitHub-репозиторий `WSChat` (private);
+  - настроен remote `origin` и выполнен push ветки `main`.
+- Средства/инструменты:
+  - `brew install gh`
+  - `gh auth login --hostname github.com --git-protocol https --web`
+  - `git init -b main`
+  - `git add .`
+  - `git commit -m 'Initial commit'`
+  - `gh repo create WSChat --private --source=. --remote=origin --push`
+  - проверки:
+    - `git remote -v`
+    - `git status --short --branch`
+    - `gh repo view WSChat --json name,visibility,url,defaultBranchRef --jq '{name:.name, visibility:.visibility, url:.url, defaultBranch:.defaultBranchRef.name}'`
+- Результат:
+  - Репозиторий создан и доступен по адресу: `https://github.com/cijx/WSChat`
+  - `origin` настроен на `https://github.com/cijx/WSChat.git`
+  - `main` отслеживает `origin/main`, рабочее дерево чистое на момент проверки.
