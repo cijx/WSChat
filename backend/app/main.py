@@ -10,11 +10,16 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.rooms import (
     ChatMessage,
     LeaveResult,
+    MAX_MESSAGE_LENGTH,
+    MAX_SESSION_TOKEN_LENGTH,
+    MAX_TOPIC_LENGTH,
+    MAX_USER_ID_LENGTH,
+    MAX_USER_NAME_LENGTH,
     Participant,
     Room,
     RoomError,
@@ -161,12 +166,12 @@ def _is_geoip_blocked(headers) -> bool:
 
 
 class ParticipantPayload(BaseModel):
-    user_id: str
-    user_name: str
+    user_id: str = Field(min_length=1, max_length=MAX_USER_ID_LENGTH)
+    user_name: str = Field(min_length=1, max_length=MAX_USER_NAME_LENGTH)
 
 
 class CreateRoomPayload(ParticipantPayload):
-    topic: str
+    topic: str = Field(min_length=1, max_length=MAX_TOPIC_LENGTH)
 
 
 class RoomPayload(BaseModel):
@@ -182,17 +187,21 @@ class MessagePayload(BaseModel):
     room_id: str
     sender_id: str
     sender_name: str
-    text: str
+    text: str = Field(min_length=1, max_length=MAX_MESSAGE_LENGTH)
     created_at: str
 
 
 class WebSocketMessagePayload(BaseModel):
     type: str
-    text: Optional[str] = None
+    text: Optional[str] = Field(default=None, max_length=MAX_MESSAGE_LENGTH)
+
+
+class RoomAccessPayload(RoomPayload):
+    session_token: str = Field(min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
 
 
 class LeaveRoomPayload(BaseModel):
-    user_id: str
+    session_token: str = Field(min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
 
 
 class LeaveRoomResultPayload(BaseModel):
@@ -235,6 +244,11 @@ def _to_room_payload(room: Room) -> RoomPayload:
         guest=_to_participant_payload(room.guest) if room.guest is not None else None,
         is_free=room.is_free,
     )
+
+
+def _to_room_access_payload(room: Room, session_token: str) -> RoomAccessPayload:
+    room_payload = _to_room_payload(room)
+    return RoomAccessPayload(**room_payload.model_dump(), session_token=session_token)
 
 
 def _to_message_payload(message: ChatMessage) -> MessagePayload:
@@ -617,8 +631,8 @@ def get_room(room_id: str) -> RoomPayload:
     return _to_room_payload(room)
 
 
-@app.post("/rooms", response_model=RoomPayload, status_code=status.HTTP_201_CREATED, tags=["rooms"])
-async def create_room(payload: CreateRoomPayload, request: Request) -> RoomPayload:
+@app.post("/rooms", response_model=RoomAccessPayload, status_code=status.HTTP_201_CREATED, tags=["rooms"])
+async def create_room(payload: CreateRoomPayload, request: Request) -> RoomAccessPayload:
     try:
         _raise_geoip_restricted_for_actions(request.headers)
         room = room_service.create_room(
@@ -626,37 +640,40 @@ async def create_room(payload: CreateRoomPayload, request: Request) -> RoomPaylo
             author_id=payload.user_id,
             author_name=payload.user_name,
         )
+        session_token = room_service.issue_session_token(room_id=room.room_id, user_id=payload.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)
     await _broadcast_lobby_event(
         payload=_rooms_catalog_updated_payload(reason="room_created", room=room),
     )
-    return _to_room_payload(room)
+    return _to_room_access_payload(room=room, session_token=session_token)
 
 
-@app.post("/rooms/{room_id}/join", response_model=RoomPayload, tags=["rooms"])
-async def join_room(room_id: str, payload: ParticipantPayload, request: Request) -> RoomPayload:
+@app.post("/rooms/{room_id}/join", response_model=RoomAccessPayload, tags=["rooms"])
+async def join_room(room_id: str, payload: ParticipantPayload, request: Request) -> RoomAccessPayload:
     previous_guest_id: Optional[str] = None
+    clean_user_id = payload.user_id.strip()
 
     try:
         _raise_geoip_restricted_for_actions(request.headers)
         await _cancel_author_close_task(room_id=room_id)
-        await _cancel_participant_disconnect(room_id=room_id, user_id=payload.user_id.strip())
+        await _cancel_participant_disconnect(room_id=room_id, user_id=clean_user_id)
         room_before_join = room_service.get_room(room_id=room_id)
         if room_before_join.guest is not None:
             previous_guest_id = room_before_join.guest.user_id
 
         room = room_service.join_room(room_id=room_id, user_id=payload.user_id, user_name=payload.user_name)
+        session_token = room_service.issue_session_token(room_id=room_id, user_id=payload.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)
 
-    joined_participant = room.participant_by_user_id(user_id=payload.user_id)
+    joined_participant = room.participant_by_user_id(user_id=clean_user_id)
     is_new_guest_join = (
-        room.author.user_id != payload.user_id
+        room.author.user_id != clean_user_id
         and joined_participant is not None
         and room.guest is not None
-        and room.guest.user_id == payload.user_id
-        and previous_guest_id != payload.user_id
+        and room.guest.user_id == clean_user_id
+        and previous_guest_id != clean_user_id
     )
 
     if is_new_guest_join and joined_participant is not None:
@@ -674,13 +691,14 @@ async def join_room(room_id: str, payload: ParticipantPayload, request: Request)
         )
 
     await _broadcast_room_state(room=room)
-    return _to_room_payload(room)
+    return _to_room_access_payload(room=room, session_token=session_token)
 
 
 @app.post("/rooms/{room_id}/leave", response_model=LeaveRoomResultPayload, tags=["rooms"])
 async def leave_room(room_id: str, payload: LeaveRoomPayload) -> LeaveRoomResultPayload:
     try:
-        leave_result = await _process_leave(room_id=room_id, user_id=payload.user_id)
+        session = room_service.resolve_session(room_id=room_id, session_token=payload.session_token)
+        leave_result = await _process_leave(room_id=room_id, user_id=session.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)
     return LeaveRoomResultPayload(status=leave_result.status)
@@ -709,15 +727,17 @@ async def lobby_socket(websocket: WebSocket) -> None:
 
 @app.websocket("/ws/rooms/{room_id}")
 async def room_chat_socket(websocket: WebSocket, room_id: str) -> None:
-    user_id = websocket.query_params.get("user_id", "").strip()
-
-    if not user_id:
+    session_token = websocket.query_params.get("session_token", "").strip()
+    if not session_token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    if not room_service.is_participant(room_id=room_id, user_id=user_id):
+    try:
+        session = room_service.resolve_session(room_id=room_id, session_token=session_token)
+    except RoomError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+    user_id = session.user_id
 
     await websocket.accept()
     await _register_connection(room_id=room_id, user_id=user_id, websocket=websocket)

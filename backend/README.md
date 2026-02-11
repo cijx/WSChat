@@ -3,7 +3,8 @@
 Базовый backend для онлайн-чата на WebSocket с жизненным циклом комнат:
 - при создании комнаты тема обязательна;
 - в комнате одновременно максимум 2 участника (автор и один собеседник);
-- автор не может присоединиться к собственной комнате как собеседник (только по совпадению `user_id`);
+- автор не может присоединиться к собственной комнате как собеседник;
+- для доступа к операциям комнаты используется серверный `session_token` (анонимная authz без доверия к client-controlled `user_id`);
 - если автор отключается, комната закрывается по таймауту;
 - если собеседник отключается, слот освобождается после grace-таймаута на переподключение.
 
@@ -22,12 +23,17 @@ uvicorn app.main:app --reload
 - `GET /health` — healthcheck.
 - `GET /rooms/free` — список свободных комнат (без собеседника).
 - `GET /rooms/{room_id}` — состояние комнаты.
-- `POST /rooms` — создать комнату.
-- `POST /rooms/{room_id}/join` — присоединиться к комнате.
-- `POST /rooms/{room_id}/leave` — выйти из комнаты.
-- `WS /ws/rooms/{room_id}?user_id=<id>` — обмен сообщениями.
+- `POST /rooms` — создать комнату (возвращает `session_token` автора).
+- `POST /rooms/{room_id}/join` — присоединиться к комнате (возвращает `session_token` участника).
+- `POST /rooms/{room_id}/leave` — выйти из комнаты (требует `session_token` в JSON body).
+- `WS /ws/rooms/{room_id}?session_token=<token>` — обмен сообщениями.
 - `WS /ws/lobby` — push-уведомления об изменении каталога доступных комнат.
 - `room_id` создается backend как `UUID4` (полный UUID-строкой).
+- Ограничения длины данных:
+  - `user_id <= 128`
+  - `user_name <= 80`
+  - `topic <= 200`
+  - `message text <= 4000`
 
 Переменные окружения:
 - `ROOM_CLOSE_TIMEOUT_SECONDS` — таймаут автозакрытия комнаты после отключения автора (по умолчанию `300`).
@@ -45,6 +51,22 @@ WebSocket server также отправляет системные событи
   "user_id": "u-1",
   "user_name": "Alice",
   "topic": "Weekend plans"
+}
+```
+
+Пример ответа:
+```json
+{
+  "room_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "topic": "Weekend plans",
+  "created_at": "2026-02-11T08:00:00+00:00",
+  "author": {
+    "user_id": "u-1",
+    "user_name": "Alice"
+  },
+  "guest": null,
+  "is_free": true,
+  "session_token": "<opaque-token>"
 }
 ```
 

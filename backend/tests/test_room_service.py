@@ -2,6 +2,10 @@ import unittest
 from uuid import UUID
 
 from app.rooms import (
+    MAX_MESSAGE_LENGTH,
+    MAX_TOPIC_LENGTH,
+    MAX_USER_ID_LENGTH,
+    MAX_USER_NAME_LENGTH,
     RoomJoinError,
     RoomNotFoundError,
     RoomPermissionError,
@@ -35,6 +39,7 @@ class RoomServiceTests(unittest.TestCase):
 
         self.assertEqual(1, len(free_rooms))
         self.assertEqual(room.room_id, free_rooms[0].room_id)
+        self.assertTrue(bool(room.author_session_token))
 
     def test_guest_join_makes_room_unavailable(self) -> None:
         room = self._create_room()
@@ -95,6 +100,59 @@ class RoomServiceTests(unittest.TestCase):
 
         parsed = UUID(room.room_id)
         self.assertEqual(room.room_id, str(parsed))
+
+    def test_resolve_session_returns_author_and_guest(self) -> None:
+        room = self._create_room()
+        author_session = self.service.resolve_session(room_id=room.room_id, session_token=room.author_session_token)
+        self.assertEqual("author", author_session.role)
+        self.assertEqual(self.author_id, author_session.user_id)
+
+        self.service.join_room(room_id=room.room_id, user_id=self.guest_id, user_name=self.guest_name)
+        guest_token = self.service.issue_session_token(room_id=room.room_id, user_id=self.guest_id)
+        guest_session = self.service.resolve_session(room_id=room.room_id, session_token=guest_token)
+        self.assertEqual("guest", guest_session.role)
+        self.assertEqual(self.guest_id, guest_session.user_id)
+
+    def test_resolve_session_rejects_invalid_token(self) -> None:
+        room = self._create_room()
+
+        with self.assertRaises(RoomPermissionError):
+            self.service.resolve_session(room_id=room.room_id, session_token="invalid-token")
+
+    def test_create_room_rejects_too_long_topic(self) -> None:
+        with self.assertRaises(RoomValidationError):
+            self.service.create_room(
+                topic="x" * (MAX_TOPIC_LENGTH + 1),
+                author_id=self.author_id,
+                author_name=self.author_name,
+            )
+
+    def test_create_room_rejects_too_long_user_name(self) -> None:
+        with self.assertRaises(RoomValidationError):
+            self.service.create_room(
+                topic="Weekend plans",
+                author_id=self.author_id,
+                author_name="a" * (MAX_USER_NAME_LENGTH + 1),
+            )
+
+    def test_create_room_rejects_too_long_user_id(self) -> None:
+        with self.assertRaises(RoomValidationError):
+            self.service.create_room(
+                topic="Weekend plans",
+                author_id="u" * (MAX_USER_ID_LENGTH + 1),
+                author_name=self.author_name,
+            )
+
+    def test_post_message_rejects_too_long_text(self) -> None:
+        room = self._create_room()
+        self.service.join_room(room_id=room.room_id, user_id=self.guest_id, user_name=self.guest_name)
+
+        with self.assertRaises(RoomValidationError):
+            self.service.post_message(
+                room_id=room.room_id,
+                user_id=self.guest_id,
+                text="m" * (MAX_MESSAGE_LENGTH + 1),
+            )
 
 
 if __name__ == "__main__":

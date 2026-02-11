@@ -69,6 +69,44 @@ function jsonResponse(payload) {
   }
 }
 
+function freeRoom(overrides = {}) {
+  return {
+    room_id: 'room-1',
+    topic: 'Topic',
+    created_at: '2026-02-07T00:00:00+00:00',
+    author: { user_id: 'author-1', user_name: 'Alice' },
+    guest: null,
+    is_free: true,
+    ...overrides
+  }
+}
+
+function busyRoom(overrides = {}) {
+  return {
+    ...freeRoom(),
+    guest: { user_id: 'guest-1', user_name: 'Bob' },
+    is_free: false,
+    ...overrides
+  }
+}
+
+function roomAccessPayload(overrides = {}) {
+  return {
+    ...busyRoom(),
+    session_token: 'guest-token',
+    ...overrides
+  }
+}
+
+function roomStateEvent(overrides = {}) {
+  return {
+    type: 'room_state',
+    room: busyRoom(),
+    history: [],
+    ...overrides
+  }
+}
+
 describe('App', () => {
   beforeEach(() => {
     const localStorageMock = createStorageMock()
@@ -107,20 +145,7 @@ describe('App', () => {
   })
 
   test('renders free rooms as cards in lobby board', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Sky Room',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([freeRoom({ topic: 'Sky Room' })]))
 
     vi.stubGlobal('fetch', fetchMock)
 
@@ -131,33 +156,13 @@ describe('App', () => {
     expect(wrapper.findAll('.room-tile').length).toBe(1)
   })
 
-  test('joins free room and opens websocket', async () => {
+  test('joins free room and opens websocket with session token', async () => {
     localStorage.setItem('chat.user_id', 'guest-1')
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Topic',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse([freeRoom()]))
+      .mockResolvedValueOnce(jsonResponse(roomAccessPayload()))
       .mockResolvedValueOnce(jsonResponse([]))
 
     vi.stubGlobal('fetch', fetchMock)
@@ -175,7 +180,7 @@ describe('App', () => {
     expect(JSON.parse(joinCall[1].body)).toEqual({ user_id: 'guest-1', user_name: 'Bob' })
 
     const lobbySocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/lobby'))
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?user_id=guest-1'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
 
     expect(lobbySocket).toBeTruthy()
     expect(roomSocket).toBeTruthy()
@@ -187,28 +192,8 @@ describe('App', () => {
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Topic',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse([freeRoom()]))
+      .mockResolvedValueOnce(jsonResponse(roomAccessPayload()))
       .mockResolvedValueOnce(jsonResponse([]))
 
     vi.stubGlobal('fetch', fetchMock)
@@ -220,7 +205,7 @@ describe('App', () => {
     await wrapper.get('.room-row .button').trigger('click')
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?user_id=guest-1'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -239,28 +224,8 @@ describe('App', () => {
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Topic',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse([freeRoom()]))
+      .mockResolvedValueOnce(jsonResponse(roomAccessPayload()))
       .mockResolvedValueOnce(jsonResponse([]))
 
     vi.stubGlobal('fetch', fetchMock)
@@ -272,7 +237,7 @@ describe('App', () => {
     await wrapper.get('.room-row .button').trigger('click')
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?user_id=guest-1'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -291,28 +256,8 @@ describe('App', () => {
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Topic',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse([freeRoom()]))
+      .mockResolvedValueOnce(jsonResponse(roomAccessPayload()))
       .mockResolvedValueOnce(jsonResponse([]))
 
     vi.stubGlobal('fetch', fetchMock)
@@ -324,7 +269,7 @@ describe('App', () => {
     await wrapper.get('.room-row .button').trigger('click')
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?user_id=guest-1'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -354,28 +299,8 @@ describe('App', () => {
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Topic',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
+      .mockResolvedValueOnce(jsonResponse([freeRoom()]))
+      .mockResolvedValueOnce(jsonResponse(roomAccessPayload()))
       .mockResolvedValueOnce(jsonResponse([]))
 
     vi.stubGlobal('fetch', fetchMock)
@@ -394,7 +319,7 @@ describe('App', () => {
     })
     panel.scrollTop = 0
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?user_id=guest-1'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -413,20 +338,7 @@ describe('App', () => {
   })
 
   test('disables room list join button when name is empty', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Topic',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([freeRoom()]))
 
     vi.stubGlobal('fetch', fetchMock)
 
@@ -445,20 +357,7 @@ describe('App', () => {
   test('does not allow joining own room from room list', async () => {
     localStorage.setItem('chat.user_id', 'author-1')
 
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'Topic',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([freeRoom()]))
 
     vi.stubGlobal('fetch', fetchMock)
 
@@ -471,59 +370,45 @@ describe('App', () => {
     expect(joinButton.attributes('disabled')).toBeDefined()
   })
 
-  test('restores active room after page reload', async () => {
+  test('restores active room after page reload using stored session token', async () => {
     localStorage.setItem('chat.user_id', 'guest-1')
     localStorage.setItem('chat.active_room_id', 'room-1')
+    localStorage.setItem('chat.active_room_session_token', 'restore-token')
 
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
-      .mockResolvedValueOnce(jsonResponse([]))
-
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mount(App)
     await flushPromises()
 
-    expect(fetchMock.mock.calls[0][0]).toContain('/rooms/room-1')
     const lobbySocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/lobby'))
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?user_id=guest-1'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=restore-token'))
+
     expect(lobbySocket).toBeTruthy()
     expect(roomSocket).toBeTruthy()
+
+    roomSocket.emitMessage(roomStateEvent({ room: busyRoom() }))
+    await flushPromises()
+
     expect(wrapper.text()).toContain('Выйти')
   })
 
   test('shows full room id inside active room header', async () => {
     localStorage.setItem('chat.user_id', 'guest-1')
     const fullRoomId = 'f711b17f-a5db-4f95-a9a3-0f6d6ff70b2c'
-
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: fullRoomId,
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
-      .mockResolvedValueOnce(jsonResponse([]))
-
     localStorage.setItem('chat.active_room_id', fullRoomId)
+    localStorage.setItem('chat.active_room_session_token', 'restore-token')
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mount(App)
+    await flushPromises()
+
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes(`/ws/rooms/${fullRoomId}?session_token=restore-token`))
+    expect(roomSocket).toBeTruthy()
+
+    roomSocket.emitMessage(roomStateEvent({ room: busyRoom({ room_id: fullRoomId }) }))
     await flushPromises()
 
     const roomIdChip = wrapper.get('.chip-room-id')
@@ -533,24 +418,18 @@ describe('App', () => {
   test('appends emoji from toolbar into composer input', async () => {
     localStorage.setItem('chat.user_id', 'guest-1')
     localStorage.setItem('chat.active_room_id', 'room-1')
+    localStorage.setItem('chat.active_room_session_token', 'restore-token')
 
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
-      .mockResolvedValueOnce(jsonResponse([]))
-
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mount(App)
+    await flushPromises()
+
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=restore-token'))
+    expect(roomSocket).toBeTruthy()
+
+    roomSocket.emitMessage(roomStateEvent({ room: busyRoom() }))
     await flushPromises()
 
     await wrapper.get('[data-emoji="😀"]').trigger('click')
@@ -561,30 +440,21 @@ describe('App', () => {
   test('sends emoji-only message over websocket', async () => {
     localStorage.setItem('chat.user_id', 'guest-1')
     localStorage.setItem('chat.active_room_id', 'room-1')
+    localStorage.setItem('chat.active_room_session_token', 'restore-token')
 
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          room_id: 'room-1',
-          topic: 'Topic',
-          created_at: '2026-02-07T00:00:00+00:00',
-          author: { user_id: 'author-1', user_name: 'Alice' },
-          guest: { user_id: 'guest-1', user_name: 'Bob' },
-          is_free: false
-        })
-      )
-      .mockResolvedValueOnce(jsonResponse([]))
-
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mount(App)
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?user_id=guest-1'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=restore-token'))
     expect(roomSocket).toBeTruthy()
-    roomSocket.emitOpen()
 
+    roomSocket.emitMessage(roomStateEvent({ room: busyRoom() }))
+    await flushPromises()
+
+    roomSocket.emitOpen()
     await wrapper.get('[data-emoji="🎉"]').trigger('click')
     await wrapper.get('.composer .button.button-primary').trigger('click')
 
@@ -599,30 +469,8 @@ describe('App', () => {
   test('refreshes free rooms on lobby websocket catalog update', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-1',
-            topic: 'First',
-            created_at: '2026-02-07T00:00:00+00:00',
-            author: { user_id: 'author-1', user_name: 'Alice' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
-            room_id: 'room-2',
-            topic: 'Second',
-            created_at: '2026-02-07T00:01:00+00:00',
-            author: { user_id: 'author-2', user_name: 'Bob' },
-            guest: null,
-            is_free: true
-          }
-        ])
-      )
+      .mockResolvedValueOnce(jsonResponse([freeRoom({ room_id: 'room-1', topic: 'First' })]))
+      .mockResolvedValueOnce(jsonResponse([freeRoom({ room_id: 'room-2', topic: 'Second' })]))
 
     vi.stubGlobal('fetch', fetchMock)
 

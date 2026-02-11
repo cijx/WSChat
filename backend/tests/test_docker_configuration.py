@@ -44,6 +44,14 @@ class DockerConfigurationTests(unittest.TestCase):
         self.assertIn("FROM nginx:1.27-alpine", dockerfile_text)
         self.assertIn("ARG VITE_WS_PROTOCOL_MODE=auto", dockerfile_text)
 
+    def test_nginx_sets_security_headers(self) -> None:
+        nginx_text = (PROJECT_ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+
+        self.assertIn("Content-Security-Policy", nginx_text)
+        self.assertIn("X-Frame-Options", nginx_text)
+        self.assertIn("X-Content-Type-Options", nginx_text)
+        self.assertIn("Referrer-Policy", nginx_text)
+
 
 if __name__ == "__main__":
     unittest.main()
