@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from threading import RLock
 from time import monotonic
@@ -10,11 +11,18 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.rooms import (
     ChatMessage,
+    DEFAULT_MAX_ACTIVE_ROOMS,
+    DEFAULT_MAX_MESSAGES_PER_ROOM,
     LeaveResult,
+    MAX_MESSAGE_LENGTH,
+    MAX_SESSION_TOKEN_LENGTH,
+    MAX_TOPIC_LENGTH,
+    MAX_USER_ID_LENGTH,
+    MAX_USER_NAME_LENGTH,
     Participant,
     Room,
     RoomError,
@@ -34,8 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-room_service = RoomService()
-
 _connections_by_room: dict[str, dict[str, set[WebSocket]]] = {}
 _connections_lock = asyncio.Lock()
 _lobby_connections: set[WebSocket] = set()
@@ -45,6 +51,23 @@ _author_close_deadlines_lock = asyncio.Lock()
 _participant_disconnect_deadlines: dict[tuple[str, str], float] = {}
 _participant_disconnect_deadlines_lock = asyncio.Lock()
 _author_close_worker_task: Optional[asyncio.Task] = None
+
+
+def _read_positive_int_env(var_name: str, default_value: int) -> int:
+    raw_value = os.getenv(var_name, str(default_value))
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return default_value
+    return max(parsed, 1)
+
+
+def _read_max_active_rooms() -> int:
+    return _read_positive_int_env("ROOM_MAX_ACTIVE_ROOMS", DEFAULT_MAX_ACTIVE_ROOMS)
+
+
+def _read_max_messages_per_room() -> int:
+    return _read_positive_int_env("ROOM_MAX_MESSAGES_PER_ROOM", DEFAULT_MAX_MESSAGES_PER_ROOM)
 
 
 def _read_room_close_timeout_seconds() -> int:
@@ -69,13 +92,22 @@ def _read_participant_reconnect_grace_seconds() -> int:
 
 
 ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS = _read_participant_reconnect_grace_seconds()
+ROOM_MAX_ACTIVE_ROOMS = _read_max_active_rooms()
+ROOM_MAX_MESSAGES_PER_ROOM = _read_max_messages_per_room()
 
 _DEFAULT_GEOIP_COUNTRY_HEADERS = "CF-IPCountry,X-Country-Code,X-Geo-Country"
+_DEFAULT_GEOIP_TRUSTED_PROXIES = "127.0.0.1,::1,testclient"
 _GEOIP_RESTRICTED_ACTIONS_DETAIL = "Для вашей страны создание комнат и подключение к комнатам недоступны."
 _geoip_cache_lock = RLock()
 _geoip_cache_path: Optional[Path] = None
 _geoip_cache_mtime_ns: Optional[int] = None
 _geoip_cache_codes: set[str] = set()
+_ROOM_SESSION_TOKEN_HEADER = "x-room-session-token"
+
+room_service = RoomService(
+    max_active_rooms=ROOM_MAX_ACTIVE_ROOMS,
+    max_messages_per_room=ROOM_MAX_MESSAGES_PER_ROOM,
+)
 
 
 def _read_geoip_country_headers() -> list[str]:
@@ -91,6 +123,50 @@ def _read_geoip_blocklist_path() -> Path:
     if raw_value:
         return Path(raw_value)
     return Path(__file__).with_name("blocked_countries.txt")
+
+
+def _read_geoip_trusted_proxies() -> list[str]:
+    raw_value = os.getenv("GEOIP_TRUSTED_PROXIES", _DEFAULT_GEOIP_TRUSTED_PROXIES)
+    return [proxy.strip() for proxy in raw_value.split(",") if proxy.strip()]
+
+
+def _is_request_from_trusted_geoip_proxy(request: Request) -> bool:
+    client_host = request.client.host.strip() if request.client is not None and request.client.host else ""
+    if not client_host:
+        return False
+
+    trusted_hosts: set[str] = set()
+    trusted_ips: set[str] = set()
+    trusted_networks = []
+
+    for raw_value in _read_geoip_trusted_proxies():
+        if "/" in raw_value:
+            try:
+                trusted_networks.append(ip_network(raw_value, strict=False))
+                continue
+            except ValueError:
+                trusted_hosts.add(raw_value.lower())
+                continue
+
+        try:
+            trusted_ips.add(str(ip_address(raw_value)))
+            continue
+        except ValueError:
+            trusted_hosts.add(raw_value.lower())
+
+    normalized_host = client_host.lower()
+    if normalized_host in trusted_hosts:
+        return True
+
+    try:
+        parsed_client_ip = ip_address(client_host)
+    except ValueError:
+        return False
+
+    if str(parsed_client_ip) in trusted_ips:
+        return True
+
+    return any(parsed_client_ip in trusted_network for trusted_network in trusted_networks)
 
 
 def _normalize_country_code(raw_value: str) -> str:
@@ -153,20 +229,30 @@ def _extract_country_code(headers) -> str:
     return ""
 
 
-def _is_geoip_blocked(headers) -> bool:
-    country_code = _extract_country_code(headers=headers)
+def _extract_country_code_from_request(request: Request) -> str:
+    if not _is_request_from_trusted_geoip_proxy(request):
+        return ""
+    return _extract_country_code(headers=request.headers)
+
+
+def _is_geoip_blocked(request: Request) -> bool:
+    country_code = _extract_country_code_from_request(request=request)
     if not country_code:
         return False
     return country_code in _load_geoip_blocked_countries()
 
 
 class ParticipantPayload(BaseModel):
-    user_id: str
-    user_name: str
+    user_id: str = Field(min_length=1, max_length=MAX_USER_ID_LENGTH)
+    user_name: str = Field(min_length=1, max_length=MAX_USER_NAME_LENGTH)
 
 
 class CreateRoomPayload(ParticipantPayload):
-    topic: str
+    topic: str = Field(min_length=1, max_length=MAX_TOPIC_LENGTH)
+
+
+class JoinRoomPayload(ParticipantPayload):
+    session_token: Optional[str] = Field(default=None, max_length=MAX_SESSION_TOKEN_LENGTH)
 
 
 class RoomPayload(BaseModel):
@@ -182,17 +268,26 @@ class MessagePayload(BaseModel):
     room_id: str
     sender_id: str
     sender_name: str
-    text: str
+    text: str = Field(min_length=1, max_length=MAX_MESSAGE_LENGTH)
     created_at: str
+
+
+class WebSocketAuthPayload(BaseModel):
+    type: str
+    session_token: str = Field(min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
 
 
 class WebSocketMessagePayload(BaseModel):
     type: str
-    text: Optional[str] = None
+    text: Optional[str] = Field(default=None, max_length=MAX_MESSAGE_LENGTH)
+
+
+class RoomAccessPayload(RoomPayload):
+    session_token: str = Field(min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
 
 
 class LeaveRoomPayload(BaseModel):
-    user_id: str
+    session_token: str = Field(min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
 
 
 class LeaveRoomResultPayload(BaseModel):
@@ -237,6 +332,11 @@ def _to_room_payload(room: Room) -> RoomPayload:
     )
 
 
+def _to_room_access_payload(room: Room, session_token: str) -> RoomAccessPayload:
+    room_payload = _to_room_payload(room)
+    return RoomAccessPayload(**room_payload.model_dump(), session_token=session_token)
+
+
 def _to_message_payload(message: ChatMessage) -> MessagePayload:
     return MessagePayload(
         room_id=message.room_id,
@@ -247,8 +347,34 @@ def _to_message_payload(message: ChatMessage) -> MessagePayload:
     )
 
 
-def _raise_geoip_restricted_for_actions(headers) -> None:
-    if _is_geoip_blocked(headers):
+def _extract_session_token_from_headers(headers) -> str:
+    header_token = headers.get(_ROOM_SESSION_TOKEN_HEADER, "").strip()
+    if header_token:
+        return header_token
+
+    authorization_value = headers.get("authorization", "")
+    scheme, _, credentials = authorization_value.partition(" ")
+    if scheme.lower() != "bearer":
+        return ""
+    return credentials.strip()
+
+
+def _resolve_session_for_room_request(room_id: str, request: Request):
+    session_token = _extract_session_token_from_headers(request.headers)
+    if not session_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Room session token is required.",
+        )
+
+    try:
+        return room_service.resolve_session(room_id=room_id, session_token=session_token)
+    except Exception as error:
+        _raise_http_from_room_error(error)
+
+
+def _raise_geoip_restricted_for_actions(request: Request) -> None:
+    if _is_geoip_blocked(request=request):
         raise HTTPException(
             status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
             detail=_GEOIP_RESTRICTED_ACTIONS_DETAIL,
@@ -609,54 +735,63 @@ def list_free_rooms() -> list[RoomPayload]:
 
 
 @app.get("/rooms/{room_id}", response_model=RoomPayload, tags=["rooms"])
-def get_room(room_id: str) -> RoomPayload:
+def get_room(room_id: str, request: Request) -> RoomPayload:
     try:
+        _resolve_session_for_room_request(room_id=room_id, request=request)
         room = room_service.get_room(room_id=room_id)
     except Exception as error:
         _raise_http_from_room_error(error)
     return _to_room_payload(room)
 
 
-@app.post("/rooms", response_model=RoomPayload, status_code=status.HTTP_201_CREATED, tags=["rooms"])
-async def create_room(payload: CreateRoomPayload, request: Request) -> RoomPayload:
+@app.post("/rooms", response_model=RoomAccessPayload, status_code=status.HTTP_201_CREATED, tags=["rooms"])
+async def create_room(payload: CreateRoomPayload, request: Request) -> RoomAccessPayload:
     try:
-        _raise_geoip_restricted_for_actions(request.headers)
+        _raise_geoip_restricted_for_actions(request=request)
         room = room_service.create_room(
             topic=payload.topic,
             author_id=payload.user_id,
             author_name=payload.user_name,
         )
+        session_token = room_service.issue_session_token(room_id=room.room_id, user_id=payload.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)
     await _broadcast_lobby_event(
         payload=_rooms_catalog_updated_payload(reason="room_created", room=room),
     )
-    return _to_room_payload(room)
+    return _to_room_access_payload(room=room, session_token=session_token)
 
 
-@app.post("/rooms/{room_id}/join", response_model=RoomPayload, tags=["rooms"])
-async def join_room(room_id: str, payload: ParticipantPayload, request: Request) -> RoomPayload:
+@app.post("/rooms/{room_id}/join", response_model=RoomAccessPayload, tags=["rooms"])
+async def join_room(room_id: str, payload: JoinRoomPayload, request: Request) -> RoomAccessPayload:
     previous_guest_id: Optional[str] = None
+    clean_user_id = payload.user_id.strip()
 
     try:
-        _raise_geoip_restricted_for_actions(request.headers)
-        await _cancel_author_close_task(room_id=room_id)
-        await _cancel_participant_disconnect(room_id=room_id, user_id=payload.user_id.strip())
+        _raise_geoip_restricted_for_actions(request=request)
         room_before_join = room_service.get_room(room_id=room_id)
         if room_before_join.guest is not None:
             previous_guest_id = room_before_join.guest.user_id
 
-        room = room_service.join_room(room_id=room_id, user_id=payload.user_id, user_name=payload.user_name)
+        room = room_service.join_room(
+            room_id=room_id,
+            user_id=payload.user_id,
+            user_name=payload.user_name,
+            session_token=payload.session_token,
+        )
+        await _cancel_author_close_task(room_id=room_id)
+        await _cancel_participant_disconnect(room_id=room_id, user_id=clean_user_id)
+        session_token = room_service.issue_session_token(room_id=room_id, user_id=payload.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)
 
-    joined_participant = room.participant_by_user_id(user_id=payload.user_id)
+    joined_participant = room.participant_by_user_id(user_id=clean_user_id)
     is_new_guest_join = (
-        room.author.user_id != payload.user_id
+        room.author.user_id != clean_user_id
         and joined_participant is not None
         and room.guest is not None
-        and room.guest.user_id == payload.user_id
-        and previous_guest_id != payload.user_id
+        and room.guest.user_id == clean_user_id
+        and previous_guest_id != clean_user_id
     )
 
     if is_new_guest_join and joined_participant is not None:
@@ -674,13 +809,14 @@ async def join_room(room_id: str, payload: ParticipantPayload, request: Request)
         )
 
     await _broadcast_room_state(room=room)
-    return _to_room_payload(room)
+    return _to_room_access_payload(room=room, session_token=session_token)
 
 
 @app.post("/rooms/{room_id}/leave", response_model=LeaveRoomResultPayload, tags=["rooms"])
 async def leave_room(room_id: str, payload: LeaveRoomPayload) -> LeaveRoomResultPayload:
     try:
-        leave_result = await _process_leave(room_id=room_id, user_id=payload.user_id)
+        session = room_service.resolve_session(room_id=room_id, session_token=payload.session_token)
+        leave_result = await _process_leave(room_id=room_id, user_id=session.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)
     return LeaveRoomResultPayload(status=leave_result.status)
@@ -709,21 +845,41 @@ async def lobby_socket(websocket: WebSocket) -> None:
 
 @app.websocket("/ws/rooms/{room_id}")
 async def room_chat_socket(websocket: WebSocket, room_id: str) -> None:
-    user_id = websocket.query_params.get("user_id", "").strip()
-
-    if not user_id:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    if not room_service.is_participant(room_id=room_id, user_id=user_id):
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
+    user_id: Optional[str] = None
+    has_registered_connection = False
     await websocket.accept()
-    await _register_connection(room_id=room_id, user_id=user_id, websocket=websocket)
-    await _cancel_participant_disconnect(room_id=room_id, user_id=user_id)
 
     try:
+        try:
+            auth_raw = await websocket.receive_json()
+        except ValueError:
+            await websocket.send_json({"type": "error", "message": "Invalid JSON payload."})
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        try:
+            auth_message = WebSocketAuthPayload(**auth_raw)
+        except ValidationError:
+            await websocket.send_json({"type": "error", "message": "Invalid auth format."})
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        if auth_message.type != "auth":
+            await websocket.send_json({"type": "error", "message": "Auth message is required."})
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        try:
+            session = room_service.resolve_session(room_id=room_id, session_token=auth_message.session_token)
+        except RoomError:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        user_id = session.user_id
+        await _register_connection(room_id=room_id, user_id=user_id, websocket=websocket)
+        has_registered_connection = True
+        await _cancel_participant_disconnect(room_id=room_id, user_id=user_id)
+
         try:
             room = room_service.get_room(room_id=room_id)
         except Exception as error:
@@ -775,9 +931,10 @@ async def room_chat_socket(websocket: WebSocket, room_id: str) -> None:
         except Exception:
             pass
     finally:
-        remaining_connections = await _remove_connection(room_id=room_id, user_id=user_id, websocket=websocket)
-        if remaining_connections == 0:
-            try:
-                await _handle_socket_disconnect(room_id=room_id, user_id=user_id)
-            except RoomValidationError:
-                return
+        if has_registered_connection and user_id is not None:
+            remaining_connections = await _remove_connection(room_id=room_id, user_id=user_id, websocket=websocket)
+            if remaining_connections == 0:
+                try:
+                    await _handle_socket_disconnect(room_id=room_id, user_id=user_id)
+                except RoomValidationError:
+                    return

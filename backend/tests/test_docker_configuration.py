@@ -27,10 +27,15 @@ class DockerConfigurationTests(unittest.TestCase):
         self.assertIn("frontend:", compose_text)
         self.assertIn("ROOM_CLOSE_TIMEOUT_SECONDS", compose_text)
         self.assertIn("ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS", compose_text)
+        self.assertIn("ROOM_MAX_ACTIVE_ROOMS", compose_text)
+        self.assertIn("ROOM_MAX_MESSAGES_PER_ROOM", compose_text)
         self.assertIn("GEOIP_COUNTRY_HEADERS", compose_text)
         self.assertIn("GEOIP_BLOCKLIST_FILE", compose_text)
+        self.assertIn("GEOIP_TRUSTED_PROXIES", compose_text)
         self.assertIn("VITE_WS_PROTOCOL_MODE", compose_text)
         self.assertIn("${ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS:-300}", compose_text)
+        self.assertIn("${ROOM_MAX_ACTIVE_ROOMS:-1000}", compose_text)
+        self.assertIn("${ROOM_MAX_MESSAGES_PER_ROOM:-500}", compose_text)
         self.assertIn("${GEOIP_BLOCKLIST_FILE:-/app/app/blocked_countries.txt}", compose_text)
         self.assertIn('"8000:8000"', compose_text)
         self.assertIn('"5173:80"', compose_text)
@@ -43,6 +48,14 @@ class DockerConfigurationTests(unittest.TestCase):
         self.assertIn("npm run build", dockerfile_text)
         self.assertIn("FROM nginx:1.27-alpine", dockerfile_text)
         self.assertIn("ARG VITE_WS_PROTOCOL_MODE=auto", dockerfile_text)
+
+    def test_nginx_sets_security_headers(self) -> None:
+        nginx_text = (PROJECT_ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+
+        self.assertIn("Content-Security-Policy", nginx_text)
+        self.assertIn("X-Frame-Options", nginx_text)
+        self.assertIn("X-Content-Type-Options", nginx_text)
+        self.assertIn("Referrer-Policy", nginx_text)
 
 
 if __name__ == "__main__":

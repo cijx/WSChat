@@ -8,6 +8,7 @@ const WS_BASE_URL = toWebSocketBaseUrl(import.meta.env.VITE_WS_BASE_URL || API_B
   ''
 )
 const ACTIVE_ROOM_STORAGE_KEY = 'chat.active_room_id'
+const ACTIVE_ROOM_SESSION_TOKEN_STORAGE_KEY = 'chat.active_room_session_token'
 const LOBBY_RECONNECT_DELAY_MS = 1000
 const QUICK_EMOJIS = ['😀', '😂', '😎', '🤝', '🎉', '🔥', '❤️', '👍']
 const INLINE_FORMAT_PATTERN = /`[^`\n]+`|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\*[^*\n]+\*/g
@@ -18,6 +19,7 @@ const createTopic = ref('')
 const joinRoomId = ref('')
 const freeRooms = ref([])
 const currentRoom = ref(null)
+const activeRoomSessionToken = ref(getStoredActiveRoomSessionToken())
 const messages = ref([])
 const messageDraft = ref('')
 const composerInputRef = ref(null)
@@ -165,9 +167,27 @@ function persistActiveRoomId(roomId) {
   }
 }
 
-function clearStoredActiveRoomId() {
+function getStoredActiveRoomSessionToken() {
+  try {
+    return localStorage.getItem(ACTIVE_ROOM_SESSION_TOKEN_STORAGE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function persistActiveRoomSessionToken(sessionToken) {
+  try {
+    localStorage.setItem(ACTIVE_ROOM_SESSION_TOKEN_STORAGE_KEY, sessionToken)
+  } catch {
+    return
+  }
+}
+
+function clearStoredActiveRoom() {
   try {
     localStorage.removeItem(ACTIVE_ROOM_STORAGE_KEY)
+    localStorage.removeItem(ACTIVE_ROOM_SESSION_TOKEN_STORAGE_KEY)
+    activeRoomSessionToken.value = ''
   } catch {
     return
   }
@@ -310,10 +330,22 @@ async function loadFreeRooms() {
   }
 }
 
-function applyRoomState(room) {
+function applyRoomState(room, sessionToken = null) {
   currentRoom.value = room
   persistActiveRoomId(room.room_id)
+  if (typeof sessionToken === 'string' && sessionToken.trim() !== '') {
+    activeRoomSessionToken.value = sessionToken
+    persistActiveRoomSessionToken(sessionToken)
+  }
   statusText.value = `Подключено к комнате ${room.room_id}`
+}
+
+function requireSessionToken(roomPayload) {
+  const sessionToken = typeof roomPayload.session_token === 'string' ? roomPayload.session_token.trim() : ''
+  if (!sessionToken) {
+    throw new Error('Не удалось получить токен сессии комнаты.')
+  }
+  return sessionToken
 }
 
 function normalizeChatMessage(message) {
@@ -439,15 +471,29 @@ function scrollMessagesToBottom() {
   panel.scrollTop = panel.scrollHeight
 }
 
-function connectToRoom(roomId) {
+function connectToRoom(roomId, sessionToken) {
   closeSocket()
+  errorText.value = ''
 
-  const target = `${WS_BASE_URL}/ws/rooms/${encodeURIComponent(roomId)}?user_id=${encodeURIComponent(userId.value)}`
+  const cleanSessionToken = String(sessionToken || '').trim()
+  if (!cleanSessionToken) {
+    errorText.value = 'Не удалось получить токен доступа к комнате.'
+    return
+  }
+
+  const target = `${WS_BASE_URL}/ws/rooms/${encodeURIComponent(roomId)}`
   const ws = new WebSocket(target)
   socket = ws
-    statusText.value = 'Подключение...'
+  let receivedRoomState = false
+  statusText.value = 'Подключение...'
 
   ws.onopen = () => {
+    ws.send(
+      JSON.stringify({
+        type: 'auth',
+        session_token: cleanSessionToken
+      })
+    )
     statusText.value = 'Подключено'
   }
 
@@ -460,7 +506,8 @@ function connectToRoom(roomId) {
     }
 
     if (payload.type === 'room_state') {
-      applyRoomState(payload.room)
+      receivedRoomState = true
+      applyRoomState(payload.room, cleanSessionToken)
       messages.value = (payload.history || []).map(normalizeChatMessage)
       return
     }
@@ -512,7 +559,7 @@ function connectToRoom(roomId) {
         : 'Комната закрыта: автор вышел.'
       currentRoom.value = null
       messages.value = []
-      clearStoredActiveRoomId()
+      clearStoredActiveRoom()
       closeSocket()
       loadFreeRooms()
       return
@@ -528,6 +575,22 @@ function connectToRoom(roomId) {
   }
 
   ws.onclose = () => {
+    if (socket === ws) {
+      socket = null
+    }
+    if (!receivedRoomState) {
+      if (currentRoom.value && currentRoom.value.room_id === roomId) {
+        currentRoom.value = null
+        messages.value = []
+      }
+      clearStoredActiveRoom()
+      statusText.value = 'Не подключено'
+      if (!errorText.value) {
+        errorText.value = 'Подключение к комнате отклонено.'
+      }
+      loadFreeRooms()
+      return
+    }
     if (currentRoom.value) {
       statusText.value = 'Отключено'
     }
@@ -553,10 +616,11 @@ async function createRoom() {
       })
     })
 
+    const sessionToken = requireSessionToken(room)
     createTopic.value = ''
     messages.value = []
-    applyRoomState(room)
-    connectToRoom(room.room_id)
+    applyRoomState(room, sessionToken)
+    connectToRoom(room.room_id, sessionToken)
     await loadFreeRooms()
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : 'Не удалось создать комнату'
@@ -594,10 +658,11 @@ async function joinRoom(roomId, authorId = null) {
       })
     })
 
+    const sessionToken = requireSessionToken(room)
     joinRoomId.value = ''
     messages.value = []
-    applyRoomState(room)
-    connectToRoom(room.room_id)
+    applyRoomState(room, sessionToken)
+    connectToRoom(room.room_id, sessionToken)
     await loadFreeRooms()
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : 'Не удалось подключиться к комнате'
@@ -612,9 +677,10 @@ async function leaveRoom() {
   }
 
   const roomId = currentRoom.value.room_id
+  const sessionToken = activeRoomSessionToken.value
   currentRoom.value = null
   messages.value = []
-  clearStoredActiveRoomId()
+  clearStoredActiveRoom()
   statusText.value = 'Выход из комнаты...'
 
   closeSocket()
@@ -622,7 +688,7 @@ async function leaveRoom() {
   try {
     await apiRequest(`/rooms/${encodeURIComponent(roomId)}/leave`, {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId.value })
+      body: JSON.stringify({ session_token: sessionToken })
     })
   } catch {
     // websocket disconnect already handles the lifecycle; endpoint is best-effort
@@ -664,7 +730,9 @@ function appendEmoji(emoji) {
 
 async function restoreRoomAfterReload() {
   const storedRoomId = getStoredActiveRoomId().trim()
-  if (!storedRoomId) {
+  const storedSessionToken = getStoredActiveRoomSessionToken().trim()
+  if (!storedRoomId || !storedSessionToken) {
+    clearStoredActiveRoom()
     await loadFreeRooms()
     return
   }
@@ -673,22 +741,11 @@ async function restoreRoomAfterReload() {
   errorText.value = ''
 
   try {
-    const room = await apiRequest(`/rooms/${encodeURIComponent(storedRoomId)}`)
-    const isAuthor = room.author && room.author.user_id === userId.value
-    const isGuest = room.guest && room.guest.user_id === userId.value
-
-    if (!isAuthor && !isGuest) {
-      clearStoredActiveRoomId()
-      statusText.value = 'Не подключено'
-      await loadFreeRooms()
-      return
-    }
-
-    applyRoomState(room)
-    connectToRoom(room.room_id)
+    activeRoomSessionToken.value = storedSessionToken
+    connectToRoom(storedRoomId, storedSessionToken)
     await loadFreeRooms()
   } catch {
-    clearStoredActiveRoomId()
+    clearStoredActiveRoom()
     statusText.value = 'Не подключено'
     await loadFreeRooms()
   }

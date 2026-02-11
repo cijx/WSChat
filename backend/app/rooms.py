@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from secrets import compare_digest, token_urlsafe
 from threading import RLock
 from typing import Literal
 from uuid import uuid4
@@ -27,6 +28,15 @@ class RoomPermissionError(RoomError):
     """Raised when user is not allowed to perform an action."""
 
 
+MAX_USER_ID_LENGTH = 128
+MAX_USER_NAME_LENGTH = 80
+MAX_TOPIC_LENGTH = 200
+MAX_MESSAGE_LENGTH = 4000
+MAX_SESSION_TOKEN_LENGTH = 256
+DEFAULT_MAX_ACTIVE_ROOMS = 1000
+DEFAULT_MAX_MESSAGES_PER_ROOM = 500
+
+
 @dataclass(frozen=True)
 class Participant:
     user_id: str
@@ -47,7 +57,9 @@ class Room:
     room_id: str
     topic: str
     author: Participant
+    author_session_token: str
     guest: Participant | None = None
+    guest_session_token: str | None = None
     created_at: str = field(default_factory=lambda: _utc_now_iso())
     messages: list[ChatMessage] = field(default_factory=list)
 
@@ -73,6 +85,12 @@ class LeaveResult:
     status: Literal["room_closed", "slot_freed", "noop"]
 
 
+@dataclass(frozen=True)
+class SessionResolution:
+    user_id: str
+    role: Literal["author", "guest"]
+
+
 def _utc_now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
@@ -80,7 +98,13 @@ def _utc_now_iso() -> str:
 class RoomService:
     """In-memory room registry for a two-person chat."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        max_active_rooms: int = DEFAULT_MAX_ACTIVE_ROOMS,
+        max_messages_per_room: int = DEFAULT_MAX_MESSAGES_PER_ROOM,
+    ) -> None:
+        self._max_active_rooms = max(max_active_rooms, 1)
+        self._max_messages_per_room = max(max_messages_per_room, 1)
         self._rooms: dict[str, Room] = {}
         self._lock = RLock()
 
@@ -88,11 +112,19 @@ class RoomService:
         clean_topic = topic.strip()
         if not clean_topic:
             raise RoomValidationError("Room topic is required.")
+        self._validate_max_length(clean_topic, MAX_TOPIC_LENGTH, "Room topic")
 
         author = self._build_participant(user_id=author_id, user_name=author_name)
         with self._lock:
+            if len(self._rooms) >= self._max_active_rooms:
+                raise RoomValidationError("Active room limit reached. Try again later.")
             room_id = str(uuid4())
-            room = Room(room_id=room_id, topic=clean_topic, author=author)
+            room = Room(
+                room_id=room_id,
+                topic=clean_topic,
+                author=author,
+                author_session_token=self._build_session_token(),
+            )
             self._rooms[room_id] = room
         return room
 
@@ -108,8 +140,13 @@ class RoomService:
                 raise RoomNotFoundError(f"Room '{room_id}' does not exist.")
             return room
 
-    def join_room(self, room_id: str, user_id: str, user_name: str) -> Room:
+    def join_room(self, room_id: str, user_id: str, user_name: str, session_token: str | None = None) -> Room:
         participant = self._build_participant(user_id=user_id, user_name=user_name)
+        clean_session_token = ""
+        if session_token is not None:
+            clean_session_token = session_token.strip()
+            if clean_session_token:
+                self._validate_max_length(clean_session_token, MAX_SESSION_TOKEN_LENGTH, "Session token")
 
         with self._lock:
             room = self._rooms.get(room_id)
@@ -121,9 +158,14 @@ class RoomService:
 
             if room.guest is None:
                 room.guest = participant
+                room.guest_session_token = self._build_session_token()
                 return room
 
             if room.guest.user_id == participant.user_id:
+                if room.guest_session_token is None:
+                    raise RoomPermissionError("Valid guest session token is required to rejoin this room.")
+                if not clean_session_token or not compare_digest(room.guest_session_token, clean_session_token):
+                    raise RoomPermissionError("Valid guest session token is required to rejoin this room.")
                 room.guest = participant
                 return room
 
@@ -145,6 +187,7 @@ class RoomService:
 
             if room.guest is not None and room.guest.user_id == clean_user_id:
                 room.guest = None
+                room.guest_session_token = None
                 return LeaveResult(status="slot_freed")
 
             return LeaveResult(status="noop")
@@ -153,6 +196,7 @@ class RoomService:
         clean_text = text.strip()
         if not clean_text:
             raise RoomValidationError("Message text is required.")
+        self._validate_max_length(clean_text, MAX_MESSAGE_LENGTH, "Message text")
 
         with self._lock:
             room = self._rooms.get(room_id)
@@ -171,7 +215,51 @@ class RoomService:
                 created_at=_utc_now_iso(),
             )
             room.messages.append(message)
+            if len(room.messages) > self._max_messages_per_room:
+                # Keep a bounded in-memory history to avoid unbounded growth.
+                room.messages.pop(0)
             return message
+
+    def issue_session_token(self, room_id: str, user_id: str) -> str:
+        clean_user_id = user_id.strip()
+        if not clean_user_id:
+            raise RoomValidationError("User id is required.")
+        self._validate_max_length(clean_user_id, MAX_USER_ID_LENGTH, "User id")
+
+        with self._lock:
+            room = self._rooms.get(room_id)
+            if room is None:
+                raise RoomNotFoundError(f"Room '{room_id}' does not exist.")
+
+            if room.author.user_id == clean_user_id:
+                return room.author_session_token
+
+            if room.guest is not None and room.guest.user_id == clean_user_id:
+                if room.guest_session_token is None:
+                    room.guest_session_token = self._build_session_token()
+                return room.guest_session_token
+
+            raise RoomPermissionError("User is not a participant of this room.")
+
+    def resolve_session(self, room_id: str, session_token: str) -> SessionResolution:
+        clean_session_token = session_token.strip()
+        if not clean_session_token:
+            raise RoomValidationError("Session token is required.")
+        self._validate_max_length(clean_session_token, MAX_SESSION_TOKEN_LENGTH, "Session token")
+
+        with self._lock:
+            room = self._rooms.get(room_id)
+            if room is None:
+                raise RoomNotFoundError(f"Room '{room_id}' does not exist.")
+
+            if compare_digest(room.author_session_token, clean_session_token):
+                return SessionResolution(user_id=room.author.user_id, role="author")
+
+            if room.guest is not None and room.guest_session_token is not None:
+                if compare_digest(room.guest_session_token, clean_session_token):
+                    return SessionResolution(user_id=room.guest.user_id, role="guest")
+
+            raise RoomPermissionError("Invalid session token for this room.")
 
     def is_participant(self, room_id: str, user_id: str) -> bool:
         with self._lock:
@@ -189,5 +277,16 @@ class RoomService:
             raise RoomValidationError("User id is required.")
         if not clean_user_name:
             raise RoomValidationError("User name is required.")
+        RoomService._validate_max_length(clean_user_id, MAX_USER_ID_LENGTH, "User id")
+        RoomService._validate_max_length(clean_user_name, MAX_USER_NAME_LENGTH, "User name")
 
         return Participant(user_id=clean_user_id, user_name=clean_user_name)
+
+    @staticmethod
+    def _build_session_token() -> str:
+        return token_urlsafe(32)
+
+    @staticmethod
+    def _validate_max_length(value: str, max_length: int, field_name: str) -> None:
+        if len(value) > max_length:
+            raise RoomValidationError(f"{field_name} must be at most {max_length} characters.")

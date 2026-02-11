@@ -11,8 +11,9 @@
 - Регистрация и модерация не требуются.
 - Любой пользователь может создать комнату.
 - Любой другой один пользователь может присоединиться к свободной комнате.
-- Автор не может присоединиться к собственной комнате как собеседник (проверка только по `user_id`).
+- Автор не может присоединиться к собственной комнате как собеседник (проверка на backend).
 - При создании комнаты тема обязательна.
+- Операции внутри комнаты защищены серверным `session_token` (websocket и `leave` не доверяют client-controlled `user_id`).
 - Если автор комнаты отключается, комната закрывается по таймауту.
 - Если собеседник отключается, слот освобождается после grace-таймаута на переподключение.
 - На стартовой странице пользователь может создать комнату или подключиться к свободной.
@@ -54,24 +55,29 @@ uvicorn app.main:app --reload
 Основные backend endpoints:
 - `GET /health`
 - `GET /rooms/free`
-- `GET /rooms/{room_id}`
-- `POST /rooms`
-- `POST /rooms/{room_id}/join`
-- `POST /rooms/{room_id}/leave`
-- `WS /ws/rooms/{room_id}?user_id=<id>`
+- `GET /rooms/{room_id}` (только для участника комнаты; требует `X-Room-Session-Token` или `Authorization: Bearer <token>`)
+- `POST /rooms` (возвращает `session_token` автора)
+- `POST /rooms/{room_id}/join` (возвращает `session_token` участника; если слот уже занят этим же `user_id`, требуется передать текущий `session_token` в payload как proof)
+- `POST /rooms/{room_id}/leave` (принимает `session_token` в JSON body)
+- `WS /ws/rooms/{room_id}` (после открытия соединения клиент обязан отправить auth-сообщение: `{"type":"auth","session_token":"..."}`)
 - `WS /ws/lobby` (уведомления о создании/освобождении/изменении доступности комнат)
 - `room_id` генерируется backend как `UUID4` (строка вида `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
+- Ограничения длины на backend: `user_id<=128`, `user_name<=80`, `topic<=200`, `message<=4000`.
 
 Backend env:
 - `ROOM_CLOSE_TIMEOUT_SECONDS` — таймаут автозакрытия комнаты после отключения автора (по умолчанию `300`).
 - `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` — grace-таймаут (сек) перед удалением отключившегося участника из комнаты (по умолчанию `300`).
+- `ROOM_MAX_ACTIVE_ROOMS` — верхний предел одновременно активных комнат в памяти backend (по умолчанию `1000`).
+- `ROOM_MAX_MESSAGES_PER_ROOM` — лимит сообщений истории на комнату в памяти backend (по умолчанию `500`).
 - `GEOIP_COUNTRY_HEADERS` — список HTTP-заголовков (через запятую), откуда читается код страны. По умолчанию: `CF-IPCountry,X-Country-Code,X-Geo-Country`.
 - `GEOIP_BLOCKLIST_FILE` — путь к файлу со списком запрещенных стран (по умолчанию `backend/app/blocked_countries.txt` локально и `/app/app/blocked_countries.txt` в Docker).
+- `GEOIP_TRUSTED_PROXIES` — список доверенных proxy-хостов/адресов/CIDR, от которых разрешено читать geoIP-заголовки (по умолчанию `127.0.0.1,::1`; для production за reverse-proxy нужно настроить явно).
 
 GeoIP blocklist:
 - формат файла: один код страны `ISO 3166-1 alpha-2` на строку;
 - пустые строки и строки с `#` игнорируются;
 - проверка применяется к операциям `POST /rooms` и `POST /rooms/{room_id}/join`;
+- geoIP-заголовки учитываются только если запрос пришел от адреса из `GEOIP_TRUSTED_PROXIES`;
 - чтение списка комнат, healthcheck и открытие интерфейса остаются доступными.
 
 ### Frontend
@@ -84,7 +90,7 @@ npm run dev
 По умолчанию фронтенд ходит в backend по `http://localhost:8000`.
 Если страница открыта не на `localhost` (например, по IP), фронтенд автоматически использует хост из URL страницы и порт `8000`.
 Идентификатор пользователя хранится в `localStorage` (общий для вкладок одного браузерного профиля).
-Текущая комната сохраняется в `localStorage` и восстанавливается после обновления страницы.
+Текущая комната и ее `session_token` сохраняются в `localStorage` и используются для восстановления после обновления страницы.
 Список доступных комнат обновляется автоматически при событиях `rooms_catalog_updated` из `ws/lobby`.
 Режим WebSocket-протокола управляется через `VITE_WS_PROTOCOL_MODE`:
 - `auto` (по умолчанию): `https -> wss`, `http -> ws`;
@@ -275,7 +281,7 @@ docker compose ps
 - `docker-compose.yml` — оркестрация сервисов `backend` и `frontend`.
 - `backend/Dockerfile` — образ FastAPI + Uvicorn.
 - `frontend/Dockerfile` — multi-stage build (Vite build + Nginx).
-- `frontend/nginx.conf` — отдача SPA с fallback на `index.html`.
+- `frontend/nginx.conf` — отдача SPA с fallback на `index.html` + базовые security headers (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`).
 - `.dockerignore` — исключение лишних файлов из build-контекста.
 
 ## Проверки качества
