@@ -33,6 +33,8 @@ MAX_USER_NAME_LENGTH = 80
 MAX_TOPIC_LENGTH = 200
 MAX_MESSAGE_LENGTH = 4000
 MAX_SESSION_TOKEN_LENGTH = 256
+DEFAULT_MAX_ACTIVE_ROOMS = 1000
+DEFAULT_MAX_MESSAGES_PER_ROOM = 500
 
 
 @dataclass(frozen=True)
@@ -96,7 +98,13 @@ def _utc_now_iso() -> str:
 class RoomService:
     """In-memory room registry for a two-person chat."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        max_active_rooms: int = DEFAULT_MAX_ACTIVE_ROOMS,
+        max_messages_per_room: int = DEFAULT_MAX_MESSAGES_PER_ROOM,
+    ) -> None:
+        self._max_active_rooms = max(max_active_rooms, 1)
+        self._max_messages_per_room = max(max_messages_per_room, 1)
         self._rooms: dict[str, Room] = {}
         self._lock = RLock()
 
@@ -108,6 +116,8 @@ class RoomService:
 
         author = self._build_participant(user_id=author_id, user_name=author_name)
         with self._lock:
+            if len(self._rooms) >= self._max_active_rooms:
+                raise RoomValidationError("Active room limit reached. Try again later.")
             room_id = str(uuid4())
             room = Room(
                 room_id=room_id,
@@ -205,6 +215,9 @@ class RoomService:
                 created_at=_utc_now_iso(),
             )
             room.messages.append(message)
+            if len(room.messages) > self._max_messages_per_room:
+                # Keep a bounded in-memory history to avoid unbounded growth.
+                room.messages.pop(0)
             return message
 
     def issue_session_token(self, room_id: str, user_id: str) -> str:

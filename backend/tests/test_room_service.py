@@ -180,6 +180,25 @@ class RoomServiceTests(unittest.TestCase):
                 text="m" * (MAX_MESSAGE_LENGTH + 1),
             )
 
+    def test_create_room_respects_active_room_limit(self) -> None:
+        limited_service = RoomService(max_active_rooms=1)
+        limited_service.create_room(topic="One", author_id="author-1", author_name="Alice")
+
+        with self.assertRaises(RoomValidationError):
+            limited_service.create_room(topic="Two", author_id="author-2", author_name="Bob")
+
+    def test_post_message_keeps_bounded_history(self) -> None:
+        limited_service = RoomService(max_messages_per_room=2)
+        room = limited_service.create_room(topic="Bounded", author_id="author-1", author_name="Alice")
+
+        limited_service.post_message(room_id=room.room_id, user_id="author-1", text="first")
+        limited_service.post_message(room_id=room.room_id, user_id="author-1", text="second")
+        limited_service.post_message(room_id=room.room_id, user_id="author-1", text="third")
+        room_after_messages = limited_service.get_room(room_id=room.room_id)
+
+        self.assertEqual(2, len(room_after_messages.messages))
+        self.assertEqual(["second", "third"], [message.text for message in room_after_messages.messages])
+
 
 if __name__ == "__main__":
     unittest.main()

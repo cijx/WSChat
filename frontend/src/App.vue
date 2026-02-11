@@ -481,13 +481,19 @@ function connectToRoom(roomId, sessionToken) {
     return
   }
 
-  const target = `${WS_BASE_URL}/ws/rooms/${encodeURIComponent(roomId)}?session_token=${encodeURIComponent(cleanSessionToken)}`
+  const target = `${WS_BASE_URL}/ws/rooms/${encodeURIComponent(roomId)}`
   const ws = new WebSocket(target)
   socket = ws
   let receivedRoomState = false
   statusText.value = 'Подключение...'
 
   ws.onopen = () => {
+    ws.send(
+      JSON.stringify({
+        type: 'auth',
+        session_token: cleanSessionToken
+      })
+    )
     statusText.value = 'Подключено'
   }
 

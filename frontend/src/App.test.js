@@ -156,7 +156,7 @@ describe('App', () => {
     expect(wrapper.findAll('.room-tile').length).toBe(1)
   })
 
-  test('joins free room and opens websocket with session token', async () => {
+  test('joins free room and sends websocket auth handshake', async () => {
     localStorage.setItem('chat.user_id', 'guest-1')
 
     const fetchMock = vi
@@ -180,10 +180,15 @@ describe('App', () => {
     expect(JSON.parse(joinCall[1].body)).toEqual({ user_id: 'guest-1', user_name: 'Bob' })
 
     const lobbySocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/lobby'))
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
 
     expect(lobbySocket).toBeTruthy()
     expect(roomSocket).toBeTruthy()
+    roomSocket.emitOpen()
+    expect(JSON.parse(roomSocket.sent[0])).toEqual({
+      type: 'auth',
+      session_token: 'guest-token'
+    })
     expect(wrapper.text()).toContain('Выйти')
   })
 
@@ -205,7 +210,7 @@ describe('App', () => {
     await wrapper.get('.room-row .button').trigger('click')
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -237,7 +242,7 @@ describe('App', () => {
     await wrapper.get('.room-row .button').trigger('click')
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -269,7 +274,7 @@ describe('App', () => {
     await wrapper.get('.room-row .button').trigger('click')
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -319,7 +324,7 @@ describe('App', () => {
     })
     panel.scrollTop = 0
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=guest-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage({
@@ -382,7 +387,7 @@ describe('App', () => {
     await flushPromises()
 
     const lobbySocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/lobby'))
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=restore-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
 
     expect(lobbySocket).toBeTruthy()
     expect(roomSocket).toBeTruthy()
@@ -405,7 +410,7 @@ describe('App', () => {
     const wrapper = mount(App)
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes(`/ws/rooms/${fullRoomId}?session_token=restore-token`))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes(`/ws/rooms/${fullRoomId}`))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage(roomStateEvent({ room: busyRoom({ room_id: fullRoomId }) }))
@@ -426,7 +431,7 @@ describe('App', () => {
     const wrapper = mount(App)
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=restore-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage(roomStateEvent({ room: busyRoom() }))
@@ -448,7 +453,7 @@ describe('App', () => {
     const wrapper = mount(App)
     await flushPromises()
 
-    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1?session_token=restore-token'))
+    const roomSocket = MockWebSocket.instances.find((ws) => ws.url.includes('/ws/rooms/room-1'))
     expect(roomSocket).toBeTruthy()
 
     roomSocket.emitMessage(roomStateEvent({ room: busyRoom() }))
@@ -458,8 +463,12 @@ describe('App', () => {
     await wrapper.get('[data-emoji="🎉"]').trigger('click')
     await wrapper.get('.composer .button.button-primary').trigger('click')
 
-    expect(roomSocket.sent.length).toBe(1)
+    expect(roomSocket.sent.length).toBe(2)
     expect(JSON.parse(roomSocket.sent[0])).toEqual({
+      type: 'auth',
+      session_token: 'restore-token'
+    })
+    expect(JSON.parse(roomSocket.sent[1])).toEqual({
       type: 'chat_message',
       text: '🎉'
     })

@@ -1253,3 +1253,85 @@
     - frontend build: OK
     - docker compose: backend/frontend `Up`
     - backend `/health`: `{"status":"ok"}`
+
+## 2026-02-11 16:02:30 +0700
+- Цель:
+  - Повторно проверить чат на безопасность по разным векторам атаки (auth/session, XSS, leakage, DoS, geoIP bypass).
+- Что сделано:
+  - Выполнен статический аудит backend/frontend:
+    - проверены места рендера frontend на XSS sink (`v-html`, `innerHTML`, `eval`) — в исходниках не найдены;
+    - проверены auth-контуры `create/join/leave/ws` в `backend/app/main.py` и `backend/app/rooms.py`;
+    - проверена nginx-конфигурация security headers.
+  - Выполнены практические PoC:
+    - подтверждено, что rejoin-обход guest токена закрыт (`403` без proof token, `200` с валидным token);
+    - подтверждено, что forged `leave` с невалидным token блокируется (`403`);
+    - подтверждено, что URL query логируется в backend access logs, включая query-параметры (`/health?probe_token=...`, `WebSocket /ws/lobby?probe_token=...`).
+  - Дополнительно проверена доступность `GET /rooms/{room_id}` без токена (отдает `author/guest` метаданные).
+- Средства/инструменты:
+  - статический анализ:
+    - `rg -n ... frontend/src backend/app`
+    - `nl -ba backend/app/main.py`
+    - `nl -ba backend/app/rooms.py`
+    - `nl -ba frontend/src/App.vue`
+    - `nl -ba frontend/nginx.conf`
+  - PoC:
+    - `curl http://127.0.0.1:8000/health?probe_token=...` + `docker compose logs backend`
+    - websocket probe через `websockets.connect('ws://127.0.0.1:8000/ws/lobby?probe_token=...')` + `docker compose logs backend`
+    - TestClient-сценарии create/join/rejoin/leave с валидными и невалидными токенами
+- Результат:
+  - Новых обходов token auth для room-участников не обнаружено.
+  - Обнаружены дополнительные риски:
+    - утечка чувствительных query-параметров в access logs при использовании токена в URL;
+    - отсутствие лимитов на количество комнат/сообщений (риск memory DoS);
+    - `GET /rooms/{room_id}` раскрывает метаданные участников без авторизации;
+    - geoIP-ограничение основано на доверии к клиентским заголовкам и может быть обходимо без доверенного reverse proxy.
+
+## 2026-02-11 16:30:51 +0700
+- Цель:
+  - Исправить все новые security findings: закрыть раскрытие метаданных комнаты, убрать токен из WS URL, ограничить in-memory рост и добавить trusted-proxy границу для geoIP.
+- Что сделано:
+  - Backend (`backend/app/main.py`):
+    - `GET /rooms/{room_id}` теперь требует токен участника в `X-Room-Session-Token` или `Authorization: Bearer ...`;
+    - room WebSocket переведен с query-параметра на auth-handshake: первое сообщение `{"type":"auth","session_token":"..."}`;
+    - geoIP-заголовки теперь учитываются только от доверенных прокси (`GEOIP_TRUSTED_PROXIES`);
+    - добавлена env-настройка лимитов `ROOM_MAX_ACTIVE_ROOMS` и `ROOM_MAX_MESSAGES_PER_ROOM` при инициализации `RoomService`.
+  - Backend доменная логика (`backend/app/rooms.py`):
+    - лимит активных комнат и лимит сообщений на комнату (bounded history) оставлены и используются через env из `main.py`.
+  - Frontend (`frontend/src/App.vue`):
+    - удален `session_token` из query строки room websocket URL;
+    - добавлен обязательный auth-пакет в `ws.onopen`.
+  - Тесты:
+    - `backend/tests/test_api_room_flow.py`: обновлены WS-тесты под handshake, добавлен тест запрета `GET /rooms/{room_id}` без токена;
+    - `backend/tests/test_geoip_restrictions.py`: добавлен тест, что недоверенный источник не может влиять geoIP headers;
+    - `backend/tests/test_room_service.py`: добавлены регрессии на лимит активных комнат и bounded message history;
+    - `backend/tests/test_docker_configuration.py`: обновлены проверки compose env для новых лимитов и trusted proxies;
+    - `frontend/src/App.test.js`: обновлены проверки URL/сообщений WebSocket под auth-handshake.
+  - Документация:
+    - обновлены `README.md` и `backend/README.md` под новый API/WS/geoIP и env-переменные.
+- Средства/инструменты:
+  - backend syntax:
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - backend tests:
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - frontend checks:
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run test -- --run`
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS http://127.0.0.1:8000/health`
+- Результат:
+  - Исправлены все 4 заявленные проблемы:
+    - metadata disclosure закрыт авторизацией `GET /rooms/{room_id}`;
+    - утечка room `session_token` через URL/query исключена (token уходит в WS message);
+    - in-memory рост ограничен лимитами комнат и истории сообщений;
+    - geoIP больше не доверяет клиентским заголовкам вне доверенного proxy boundary.
+  - Проверки:
+    - backend py_compile: OK
+    - backend unittest: OK (46/46)
+    - frontend lint: OK
+    - frontend vitest: OK (14/14)
+    - frontend build: OK
+    - docker compose: backend/frontend `Up`
+    - backend `/health`: `{"status":"ok"}`

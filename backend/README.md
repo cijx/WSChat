@@ -22,11 +22,11 @@ uvicorn app.main:app --reload
 ## API
 - `GET /health` — healthcheck.
 - `GET /rooms/free` — список свободных комнат (без собеседника).
-- `GET /rooms/{room_id}` — состояние комнаты.
+- `GET /rooms/{room_id}` — состояние комнаты (только для участника; нужен `X-Room-Session-Token` или `Authorization: Bearer <token>`).
 - `POST /rooms` — создать комнату (возвращает `session_token` автора).
 - `POST /rooms/{room_id}/join` — присоединиться к комнате (возвращает `session_token` участника; для re-join уже занятого гостевого слота тем же `user_id` обязателен `session_token` в payload).
 - `POST /rooms/{room_id}/leave` — выйти из комнаты (требует `session_token` в JSON body).
-- `WS /ws/rooms/{room_id}?session_token=<token>` — обмен сообщениями.
+- `WS /ws/rooms/{room_id}` — обмен сообщениями (первым сообщением должен быть auth-пакет с `session_token`).
 - `WS /ws/lobby` — push-уведомления об изменении каталога доступных комнат.
 - `room_id` создается backend как `UUID4` (полный UUID-строкой).
 - Ограничения длины данных:
@@ -38,6 +38,11 @@ uvicorn app.main:app --reload
 Переменные окружения:
 - `ROOM_CLOSE_TIMEOUT_SECONDS` — таймаут автозакрытия комнаты после отключения автора (по умолчанию `300`).
 - `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` — grace-таймаут (сек) перед удалением отключившегося участника (по умолчанию `300`).
+- `ROOM_MAX_ACTIVE_ROOMS` — максимальное число одновременно активных комнат в памяти (по умолчанию `1000`).
+- `ROOM_MAX_MESSAGES_PER_ROOM` — лимит длины истории сообщений на комнату в памяти (по умолчанию `500`).
+- `GEOIP_COUNTRY_HEADERS` — список заголовков с кодом страны (по умолчанию `CF-IPCountry,X-Country-Code,X-Geo-Country`).
+- `GEOIP_BLOCKLIST_FILE` — путь к файлу blocklist стран.
+- `GEOIP_TRUSTED_PROXIES` — список доверенных адресов/сетей reverse-proxy, от которых разрешено принимать geoIP-заголовки.
 
 WebSocket server также отправляет системные события:
 - `participant_event` — кто вошел/вышел из комнаты.
@@ -71,6 +76,15 @@ WebSocket server также отправляет системные событи
 ```
 
 ### Формат WebSocket-сообщения от клиента
+Первое сообщение после открытия room socket:
+```json
+{
+  "type": "auth",
+  "session_token": "<opaque-token>"
+}
+```
+
+После успешной авторизации:
 ```json
 {
   "type": "chat_message",

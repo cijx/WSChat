@@ -67,6 +67,17 @@ class RoomApiFlowTests(unittest.TestCase):
             json=payload,
         )
 
+    @staticmethod
+    def _room_auth_headers(session_token: str) -> dict[str, str]:
+        return {"X-Room-Session-Token": session_token}
+
+    def _get_room(self, room_id: str, session_token: str):
+        return self.client.get(f"/rooms/{room_id}", headers=self._room_auth_headers(session_token))
+
+    @staticmethod
+    def _authorize_room_socket(websocket, session_token: str) -> None:
+        websocket.send_json({"type": "auth", "session_token": session_token})
+
     def test_guest_can_join_room_and_open_websocket(self) -> None:
         created_room = self._create_room()
         room_id = created_room["room_id"]
@@ -76,7 +87,8 @@ class RoomApiFlowTests(unittest.TestCase):
         self.assertEqual("guest-1", join_response.json()["guest"]["user_id"])
         guest_token = join_response.json()["session_token"]
 
-        with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={guest_token}") as websocket:
+        with self.client.websocket_connect(f"/ws/rooms/{room_id}") as websocket:
+            self._authorize_room_socket(websocket=websocket, session_token=guest_token)
             payload = websocket.receive_json()
 
         self.assertEqual("room_state", payload["type"])
@@ -109,6 +121,17 @@ class RoomApiFlowTests(unittest.TestCase):
         )
         self.assertEqual(422, response.status_code)
 
+    def test_room_details_require_participant_session_token(self) -> None:
+        created_room = self._create_room(topic="Protected room details")
+        room_id = created_room["room_id"]
+        author_token = created_room["session_token"]
+
+        unauthorized = self.client.get(f"/rooms/{room_id}")
+        self.assertEqual(401, unauthorized.status_code)
+
+        authorized = self._get_room(room_id=room_id, session_token=author_token)
+        self.assertEqual(200, authorized.status_code)
+
     @staticmethod
     def _receive_until_type(websocket, expected_type: str, max_messages: int = 6):
         for _ in range(max_messages):
@@ -140,7 +163,8 @@ class RoomApiFlowTests(unittest.TestCase):
         room_id = created_room["room_id"]
         author_token = created_room["session_token"]
 
-        with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={author_token}") as author_ws:
+        with self.client.websocket_connect(f"/ws/rooms/{room_id}") as author_ws:
+            self._authorize_room_socket(websocket=author_ws, session_token=author_token)
             first_payload = author_ws.receive_json()
             self.assertEqual("room_state", first_payload["type"])
 
@@ -169,16 +193,21 @@ class RoomApiFlowTests(unittest.TestCase):
         room_id = created_room["room_id"]
 
         with self.assertRaises(WebSocketDisconnect):
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token=intruder"):
-                pass
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as websocket:
+                websocket.send_json({"type": "auth", "session_token": "intruder"})
+                websocket.receive_json()
 
-        with self.assertRaises(WebSocketDisconnect):
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?user_id=author-1"):
-                pass
+        with self.client.websocket_connect(f"/ws/rooms/{room_id}") as websocket:
+            websocket.send_json({"type": "auth", "user_id": "author-1"})
+            payload = websocket.receive_json()
+            self.assertEqual("error", payload["type"])
+            with self.assertRaises(WebSocketDisconnect):
+                websocket.receive_json()
 
     def test_leave_rejects_forged_identity(self) -> None:
         created_room = self._create_room(topic="Leave room")
         room_id = created_room["room_id"]
+        author_token = created_room["session_token"]
 
         forged_leave = self.client.post(
             f"/rooms/{room_id}/leave",
@@ -186,7 +215,7 @@ class RoomApiFlowTests(unittest.TestCase):
         )
         self.assertEqual(403, forged_leave.status_code)
 
-        room_still_exists = self.client.get(f"/rooms/{room_id}")
+        room_still_exists = self._get_room(room_id=room_id, session_token=author_token)
         self.assertEqual(200, room_still_exists.status_code)
 
         legacy_payload = self.client.post(
@@ -198,11 +227,12 @@ class RoomApiFlowTests(unittest.TestCase):
     def test_busy_room_join_cannot_mint_guest_token_by_user_id_only(self) -> None:
         created_room = self._create_room(topic="Busy mint room")
         room_id = created_room["room_id"]
+        author_token = created_room["session_token"]
         legit_join = self._join_room(room_id=room_id, user_id="guest-1", user_name="Bob")
         self.assertEqual(200, legit_join.status_code)
         guest_token = legit_join.json()["session_token"]
 
-        room_snapshot = self.client.get(f"/rooms/{room_id}")
+        room_snapshot = self._get_room(room_id=room_id, session_token=author_token)
         self.assertEqual(200, room_snapshot.status_code)
         exposed_guest_id = room_snapshot.json()["guest"]["user_id"]
         self.assertEqual("guest-1", exposed_guest_id)
@@ -278,16 +308,17 @@ class RoomApiFlowTests(unittest.TestCase):
             room_id = created_room["room_id"]
             author_token = created_room["session_token"]
 
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={author_token}") as author_ws:
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as author_ws:
+                self._authorize_room_socket(websocket=author_ws, session_token=author_token)
                 room_state = author_ws.receive_json()
                 self.assertEqual("room_state", room_state["type"])
 
             sleep(0.2)
-            not_closed_yet = self.client.get(f"/rooms/{room_id}")
+            not_closed_yet = self._get_room(room_id=room_id, session_token=author_token)
             self.assertEqual(200, not_closed_yet.status_code)
 
             sleep(1.8)
-            closed_after_timeout = self.client.get(f"/rooms/{room_id}")
+            closed_after_timeout = self._get_room(room_id=room_id, session_token=author_token)
             self.assertEqual(404, closed_after_timeout.status_code)
 
     def test_author_reconnect_cancels_scheduled_room_close(self) -> None:
@@ -296,37 +327,41 @@ class RoomApiFlowTests(unittest.TestCase):
             room_id = created_room["room_id"]
             author_token = created_room["session_token"]
 
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={author_token}") as first_author_ws:
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as first_author_ws:
+                self._authorize_room_socket(websocket=first_author_ws, session_token=author_token)
                 room_state = first_author_ws.receive_json()
                 self.assertEqual("room_state", room_state["type"])
 
             sleep(0.2)
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={author_token}") as second_author_ws:
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as second_author_ws:
+                self._authorize_room_socket(websocket=second_author_ws, session_token=author_token)
                 room_state = second_author_ws.receive_json()
                 self.assertEqual("room_state", room_state["type"])
                 sleep(1.8)
-                still_exists = self.client.get(f"/rooms/{room_id}")
+                still_exists = self._get_room(room_id=room_id, session_token=author_token)
                 self.assertEqual(200, still_exists.status_code)
 
     def test_guest_disconnect_does_not_free_slot_immediately(self) -> None:
         with patch("app.main.ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS", 1):
             created_room = self._create_room(topic="Guest timeout room")
             room_id = created_room["room_id"]
+            author_token = created_room["session_token"]
             join_response = self._join_room(room_id=room_id)
             self.assertEqual(200, join_response.status_code)
             guest_token = join_response.json()["session_token"]
 
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={guest_token}") as guest_ws:
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as guest_ws:
+                self._authorize_room_socket(websocket=guest_ws, session_token=guest_token)
                 room_state = guest_ws.receive_json()
                 self.assertEqual("room_state", room_state["type"])
 
             sleep(0.2)
-            still_occupied = self.client.get(f"/rooms/{room_id}")
+            still_occupied = self._get_room(room_id=room_id, session_token=author_token)
             self.assertEqual(200, still_occupied.status_code)
             self.assertEqual("guest-1", still_occupied.json()["guest"]["user_id"])
 
             sleep(1.8)
-            freed_after_grace = self.client.get(f"/rooms/{room_id}")
+            freed_after_grace = self._get_room(room_id=room_id, session_token=author_token)
             self.assertEqual(200, freed_after_grace.status_code)
             self.assertIsNone(freed_after_grace.json()["guest"])
 
@@ -336,7 +371,8 @@ class RoomApiFlowTests(unittest.TestCase):
             room_id = created_room["room_id"]
             author_token = created_room["session_token"]
 
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={author_token}") as author_ws:
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as author_ws:
+                self._authorize_room_socket(websocket=author_ws, session_token=author_token)
                 author_state = author_ws.receive_json()
                 self.assertEqual("room_state", author_state["type"])
 
@@ -346,7 +382,8 @@ class RoomApiFlowTests(unittest.TestCase):
 
                 self._receive_participant_event(author_ws, "joined")
 
-                with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={guest_token}") as guest_ws:
+                with self.client.websocket_connect(f"/ws/rooms/{room_id}") as guest_ws:
+                    self._authorize_room_socket(websocket=guest_ws, session_token=guest_token)
                     guest_state = guest_ws.receive_json()
                     self.assertEqual("room_state", guest_state["type"])
 
@@ -358,20 +395,23 @@ class RoomApiFlowTests(unittest.TestCase):
         with patch("app.main.ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS", 1):
             created_room = self._create_room(topic="Guest reconnect room")
             room_id = created_room["room_id"]
+            author_token = created_room["session_token"]
             join_response = self._join_room(room_id=room_id)
             self.assertEqual(200, join_response.status_code)
             guest_token = join_response.json()["session_token"]
 
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={guest_token}") as first_guest_ws:
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as first_guest_ws:
+                self._authorize_room_socket(websocket=first_guest_ws, session_token=guest_token)
                 room_state = first_guest_ws.receive_json()
                 self.assertEqual("room_state", room_state["type"])
 
             sleep(0.2)
-            with self.client.websocket_connect(f"/ws/rooms/{room_id}?session_token={guest_token}") as second_guest_ws:
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as second_guest_ws:
+                self._authorize_room_socket(websocket=second_guest_ws, session_token=guest_token)
                 room_state = second_guest_ws.receive_json()
                 self.assertEqual("room_state", room_state["type"])
                 sleep(1.8)
-                still_occupied = self.client.get(f"/rooms/{room_id}")
+                still_occupied = self._get_room(room_id=room_id, session_token=author_token)
                 self.assertEqual(200, still_occupied.status_code)
                 self.assertEqual("guest-1", still_occupied.json()["guest"]["user_id"])
 

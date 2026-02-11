@@ -55,11 +55,11 @@ uvicorn app.main:app --reload
 Основные backend endpoints:
 - `GET /health`
 - `GET /rooms/free`
-- `GET /rooms/{room_id}`
+- `GET /rooms/{room_id}` (только для участника комнаты; требует `X-Room-Session-Token` или `Authorization: Bearer <token>`)
 - `POST /rooms` (возвращает `session_token` автора)
 - `POST /rooms/{room_id}/join` (возвращает `session_token` участника; если слот уже занят этим же `user_id`, требуется передать текущий `session_token` в payload как proof)
 - `POST /rooms/{room_id}/leave` (принимает `session_token` в JSON body)
-- `WS /ws/rooms/{room_id}?session_token=<token>`
+- `WS /ws/rooms/{room_id}` (после открытия соединения клиент обязан отправить auth-сообщение: `{"type":"auth","session_token":"..."}`)
 - `WS /ws/lobby` (уведомления о создании/освобождении/изменении доступности комнат)
 - `room_id` генерируется backend как `UUID4` (строка вида `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
 - Ограничения длины на backend: `user_id<=128`, `user_name<=80`, `topic<=200`, `message<=4000`.
@@ -67,13 +67,17 @@ uvicorn app.main:app --reload
 Backend env:
 - `ROOM_CLOSE_TIMEOUT_SECONDS` — таймаут автозакрытия комнаты после отключения автора (по умолчанию `300`).
 - `ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS` — grace-таймаут (сек) перед удалением отключившегося участника из комнаты (по умолчанию `300`).
+- `ROOM_MAX_ACTIVE_ROOMS` — верхний предел одновременно активных комнат в памяти backend (по умолчанию `1000`).
+- `ROOM_MAX_MESSAGES_PER_ROOM` — лимит сообщений истории на комнату в памяти backend (по умолчанию `500`).
 - `GEOIP_COUNTRY_HEADERS` — список HTTP-заголовков (через запятую), откуда читается код страны. По умолчанию: `CF-IPCountry,X-Country-Code,X-Geo-Country`.
 - `GEOIP_BLOCKLIST_FILE` — путь к файлу со списком запрещенных стран (по умолчанию `backend/app/blocked_countries.txt` локально и `/app/app/blocked_countries.txt` в Docker).
+- `GEOIP_TRUSTED_PROXIES` — список доверенных proxy-хостов/адресов/CIDR, от которых разрешено читать geoIP-заголовки (по умолчанию `127.0.0.1,::1`; для production за reverse-proxy нужно настроить явно).
 
 GeoIP blocklist:
 - формат файла: один код страны `ISO 3166-1 alpha-2` на строку;
 - пустые строки и строки с `#` игнорируются;
 - проверка применяется к операциям `POST /rooms` и `POST /rooms/{room_id}/join`;
+- geoIP-заголовки учитываются только если запрос пришел от адреса из `GEOIP_TRUSTED_PROXIES`;
 - чтение списка комнат, healthcheck и открытие интерфейса остаются доступными.
 
 ### Frontend

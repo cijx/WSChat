@@ -44,7 +44,12 @@ class GeoIPRestrictionTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
 
     @contextmanager
-    def _geoip_env(self, blocklist: str, headers: str = "X-Country-Code"):
+    def _geoip_env(
+        self,
+        blocklist: str,
+        headers: str = "X-Country-Code",
+        trusted_proxies: str = "testclient,127.0.0.1,::1",
+    ):
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as temp_file:
             temp_file.write(blocklist)
             temp_path = Path(temp_file.name)
@@ -55,6 +60,7 @@ class GeoIPRestrictionTests(unittest.TestCase):
                 {
                     "GEOIP_BLOCKLIST_FILE": str(temp_path),
                     "GEOIP_COUNTRY_HEADERS": headers,
+                    "GEOIP_TRUSTED_PROXIES": trusted_proxies,
                 },
                 clear=False,
             ):
@@ -115,6 +121,17 @@ class GeoIPRestrictionTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertEqual({"status": "ok"}, response.json())
+
+    def test_untrusted_client_headers_do_not_trigger_geoip_block(self) -> None:
+        with self._geoip_env("US\n"):
+            with patch("app.main._is_request_from_trusted_geoip_proxy", return_value=False):
+                response = self.client.post(
+                    "/rooms",
+                    json={"user_id": "author-1", "user_name": "Alice", "topic": "Untrusted geo headers"},
+                    headers={"X-Country-Code": "US"},
+                )
+
+        self.assertEqual(201, response.status_code)
 
 
 if __name__ == "__main__":
