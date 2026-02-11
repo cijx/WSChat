@@ -756,6 +756,8 @@ async def create_room(payload: CreateRoomPayload, request: Request) -> RoomAcces
         session_token = room_service.issue_session_token(room_id=room.room_id, user_id=payload.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)
+    if ROOM_CLOSE_TIMEOUT_SECONDS > 0:
+        await _schedule_author_close(room_id=room.room_id, user_id=payload.user_id.strip())
     await _broadcast_lobby_event(
         payload=_rooms_catalog_updated_payload(reason="room_created", room=room),
     )
@@ -779,7 +781,6 @@ async def join_room(room_id: str, payload: JoinRoomPayload, request: Request) ->
             user_name=payload.user_name,
             session_token=payload.session_token,
         )
-        await _cancel_author_close_task(room_id=room_id)
         await _cancel_participant_disconnect(room_id=room_id, user_id=clean_user_id)
         session_token = room_service.issue_session_token(room_id=room_id, user_id=payload.user_id)
     except Exception as error:

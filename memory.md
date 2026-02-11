@@ -1335,3 +1335,44 @@
     - frontend build: OK
     - docker compose: backend/frontend `Up`
     - backend `/health`: `{"status":"ok"}`
+
+## 2026-02-11 16:36:14 +0700
+- Цель:
+  - Проверить и исправить баг: комната не удаляется после ухода автора (таймаут 5 минут).
+- Что сделано:
+  - Выявлена причина:
+    - в `POST /rooms/{room_id}/join` снимался `author close deadline`, из-за чего после отключения автора таймер мог быть отменен гостевым join/rejoin и комната оставалась жить бесконечно.
+  - Исправления:
+    - `backend/app/main.py`:
+      - запуск `author close deadline` добавлен сразу после `POST /rooms` (если таймаут > 0);
+      - удалена отмена `author close deadline` из `POST /rooms/{room_id}/join` (guest join больше не продлевает жизнь комнаты без автора).
+    - `backend/tests/test_api_room_flow.py`:
+      - добавлен регрессионный тест `test_author_timeout_still_closes_room_after_guest_join`.
+    - документация:
+      - обновлены `README.md` и `backend/README.md` с уточнением поведения таймера автора.
+- Средства/инструменты:
+  - backend:
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/ruff check app tests`
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_api_room_flow.py' -v`
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - frontend:
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run test -- --run`
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS http://127.0.0.1:8000/health`
+- Результат:
+  - Баг закрыт регрессией: даже если гость подключился, комната закрывается по таймауту при отсутствии автора.
+  - Проверки:
+    - backend py_compile: OK
+    - backend ruff: OK
+    - backend targeted unittest: OK (17/17)
+    - backend full unittest: OK (47/47)
+    - frontend lint: OK
+    - frontend vitest: OK (14/14)
+    - frontend build: OK
+    - docker compose: backend/frontend `Up`
+    - backend `/health`: `{"status":"ok"}`

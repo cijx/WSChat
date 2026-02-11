@@ -341,6 +341,24 @@ class RoomApiFlowTests(unittest.TestCase):
                 still_exists = self._get_room(room_id=room_id, session_token=author_token)
                 self.assertEqual(200, still_exists.status_code)
 
+    def test_author_timeout_still_closes_room_after_guest_join(self) -> None:
+        with patch("app.main.ROOM_CLOSE_TIMEOUT_SECONDS", 1):
+            created_room = self._create_room(topic="Author timeout with guest join")
+            room_id = created_room["room_id"]
+            author_token = created_room["session_token"]
+
+            with self.client.websocket_connect(f"/ws/rooms/{room_id}") as author_ws:
+                self._authorize_room_socket(websocket=author_ws, session_token=author_token)
+                room_state = author_ws.receive_json()
+                self.assertEqual("room_state", room_state["type"])
+
+            join_response = self._join_room(room_id=room_id)
+            self.assertEqual(200, join_response.status_code)
+
+            sleep(1.8)
+            closed_room = self._get_room(room_id=room_id, session_token=author_token)
+            self.assertEqual(404, closed_room.status_code)
+
     def test_guest_disconnect_does_not_free_slot_immediately(self) -> None:
         with patch("app.main.ROOM_PARTICIPANT_RECONNECT_GRACE_SECONDS", 1):
             created_room = self._create_room(topic="Guest timeout room")
