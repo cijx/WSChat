@@ -24,7 +24,7 @@ uvicorn app.main:app --reload
 - `GET /rooms/free` — список свободных комнат (без собеседника).
 - `GET /rooms/{room_id}` — состояние комнаты.
 - `POST /rooms` — создать комнату (возвращает `session_token` автора).
-- `POST /rooms/{room_id}/join` — присоединиться к комнате (возвращает `session_token` участника).
+- `POST /rooms/{room_id}/join` — присоединиться к комнате (возвращает `session_token` участника; для re-join уже занятого гостевого слота тем же `user_id` обязателен `session_token` в payload).
 - `POST /rooms/{room_id}/leave` — выйти из комнаты (требует `session_token` в JSON body).
 - `WS /ws/rooms/{room_id}?session_token=<token>` — обмен сообщениями.
 - `WS /ws/lobby` — push-уведомления об изменении каталога доступных комнат.

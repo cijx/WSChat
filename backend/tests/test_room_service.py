@@ -54,6 +54,32 @@ class RoomServiceTests(unittest.TestCase):
         with self.assertRaises(RoomJoinError):
             self.service.join_room(room_id=room.room_id, user_id="guest-2", user_name="Charlie")
 
+    def test_guest_rejoin_requires_valid_session_token(self) -> None:
+        room = self._create_room()
+        self.service.join_room(room_id=room.room_id, user_id=self.guest_id, user_name=self.guest_name)
+        guest_token = self.service.issue_session_token(room_id=room.room_id, user_id=self.guest_id)
+
+        with self.assertRaises(RoomPermissionError):
+            self.service.join_room(room_id=room.room_id, user_id=self.guest_id, user_name="Bobby")
+
+        with self.assertRaises(RoomPermissionError):
+            self.service.join_room(
+                room_id=room.room_id,
+                user_id=self.guest_id,
+                user_name="Bobby",
+                session_token="wrong-token",
+            )
+
+        updated = self.service.join_room(
+            room_id=room.room_id,
+            user_id=self.guest_id,
+            user_name="Bobby",
+            session_token=guest_token,
+        )
+        self.assertIsNotNone(updated.guest)
+        self.assertEqual("Bobby", updated.guest.user_name)
+        self.assertEqual(guest_token, self.service.issue_session_token(room_id=room.room_id, user_id=self.guest_id))
+
     def test_author_cannot_join_own_room(self) -> None:
         room = self._create_room()
 

@@ -130,8 +130,13 @@ class RoomService:
                 raise RoomNotFoundError(f"Room '{room_id}' does not exist.")
             return room
 
-    def join_room(self, room_id: str, user_id: str, user_name: str) -> Room:
+    def join_room(self, room_id: str, user_id: str, user_name: str, session_token: str | None = None) -> Room:
         participant = self._build_participant(user_id=user_id, user_name=user_name)
+        clean_session_token = ""
+        if session_token is not None:
+            clean_session_token = session_token.strip()
+            if clean_session_token:
+                self._validate_max_length(clean_session_token, MAX_SESSION_TOKEN_LENGTH, "Session token")
 
         with self._lock:
             room = self._rooms.get(room_id)
@@ -147,9 +152,11 @@ class RoomService:
                 return room
 
             if room.guest.user_id == participant.user_id:
-                room.guest = participant
                 if room.guest_session_token is None:
-                    room.guest_session_token = self._build_session_token()
+                    raise RoomPermissionError("Valid guest session token is required to rejoin this room.")
+                if not clean_session_token or not compare_digest(room.guest_session_token, clean_session_token):
+                    raise RoomPermissionError("Valid guest session token is required to rejoin this room.")
+                room.guest = participant
                 return room
 
             raise RoomJoinError("Room already has a guest.")

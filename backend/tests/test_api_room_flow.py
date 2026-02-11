@@ -1,5 +1,6 @@
 import unittest
 from time import sleep
+from typing import Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -51,10 +52,19 @@ class RoomApiFlowTests(unittest.TestCase):
         self.assertTrue(bool(payload["session_token"]))
         return payload
 
-    def _join_room(self, room_id: str, user_id: str = "guest-1", user_name: str = "Bob"):
+    def _join_room(
+        self,
+        room_id: str,
+        user_id: str = "guest-1",
+        user_name: str = "Bob",
+        session_token: Optional[str] = None,
+    ):
+        payload = {"user_id": user_id, "user_name": user_name}
+        if session_token is not None:
+            payload["session_token"] = session_token
         return self.client.post(
             f"/rooms/{room_id}/join",
-            json={"user_id": user_id, "user_name": user_name},
+            json=payload,
         )
 
     def test_guest_can_join_room_and_open_websocket(self) -> None:
@@ -184,6 +194,41 @@ class RoomApiFlowTests(unittest.TestCase):
             json={"user_id": "author-1"},
         )
         self.assertEqual(422, legacy_payload.status_code)
+
+    def test_busy_room_join_cannot_mint_guest_token_by_user_id_only(self) -> None:
+        created_room = self._create_room(topic="Busy mint room")
+        room_id = created_room["room_id"]
+        legit_join = self._join_room(room_id=room_id, user_id="guest-1", user_name="Bob")
+        self.assertEqual(200, legit_join.status_code)
+        guest_token = legit_join.json()["session_token"]
+
+        room_snapshot = self.client.get(f"/rooms/{room_id}")
+        self.assertEqual(200, room_snapshot.status_code)
+        exposed_guest_id = room_snapshot.json()["guest"]["user_id"]
+        self.assertEqual("guest-1", exposed_guest_id)
+
+        forged_join = self._join_room(room_id=room_id, user_id=exposed_guest_id, user_name="Mallory")
+        self.assertEqual(403, forged_join.status_code)
+        self.assertIn("session token", forged_join.json()["detail"].lower())
+
+        bad_token_join = self._join_room(
+            room_id=room_id,
+            user_id=exposed_guest_id,
+            user_name="Mallory",
+            session_token="wrong-token",
+        )
+        self.assertEqual(403, bad_token_join.status_code)
+        self.assertIn("session token", bad_token_join.json()["detail"].lower())
+
+        valid_rejoin = self._join_room(
+            room_id=room_id,
+            user_id=exposed_guest_id,
+            user_name="Bobby",
+            session_token=guest_token,
+        )
+        self.assertEqual(200, valid_rejoin.status_code)
+        self.assertEqual(guest_token, valid_rejoin.json()["session_token"])
+        self.assertEqual("Bobby", valid_rejoin.json()["guest"]["user_name"])
 
     def test_lobby_websocket_receives_room_created_event(self) -> None:
         with self.client.websocket_connect("/ws/lobby") as lobby_ws:

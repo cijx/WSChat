@@ -174,6 +174,10 @@ class CreateRoomPayload(ParticipantPayload):
     topic: str = Field(min_length=1, max_length=MAX_TOPIC_LENGTH)
 
 
+class JoinRoomPayload(ParticipantPayload):
+    session_token: Optional[str] = Field(default=None, max_length=MAX_SESSION_TOKEN_LENGTH)
+
+
 class RoomPayload(BaseModel):
     room_id: str
     topic: str
@@ -650,19 +654,24 @@ async def create_room(payload: CreateRoomPayload, request: Request) -> RoomAcces
 
 
 @app.post("/rooms/{room_id}/join", response_model=RoomAccessPayload, tags=["rooms"])
-async def join_room(room_id: str, payload: ParticipantPayload, request: Request) -> RoomAccessPayload:
+async def join_room(room_id: str, payload: JoinRoomPayload, request: Request) -> RoomAccessPayload:
     previous_guest_id: Optional[str] = None
     clean_user_id = payload.user_id.strip()
 
     try:
         _raise_geoip_restricted_for_actions(request.headers)
-        await _cancel_author_close_task(room_id=room_id)
-        await _cancel_participant_disconnect(room_id=room_id, user_id=clean_user_id)
         room_before_join = room_service.get_room(room_id=room_id)
         if room_before_join.guest is not None:
             previous_guest_id = room_before_join.guest.user_id
 
-        room = room_service.join_room(room_id=room_id, user_id=payload.user_id, user_name=payload.user_name)
+        room = room_service.join_room(
+            room_id=room_id,
+            user_id=payload.user_id,
+            user_name=payload.user_name,
+            session_token=payload.session_token,
+        )
+        await _cancel_author_close_task(room_id=room_id)
+        await _cancel_participant_disconnect(room_id=room_id, user_id=clean_user_id)
         session_token = room_service.issue_session_token(room_id=room_id, user_id=payload.user_id)
     except Exception as error:
         _raise_http_from_room_error(error)

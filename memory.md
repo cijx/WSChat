@@ -1209,3 +1209,47 @@
     - frontend build: OK
     - docker compose: backend/frontend `Up`
     - backend `/health`: `{"status":"ok"}`
+
+## 2026-02-11 16:00:43 +0700
+- Цель:
+  - Закрыть обход авторизации: запретить выдачу guest `session_token` при `POST /rooms/{room_id}/join` без доказательства владения текущей гостевой сессией.
+- Что сделано:
+  - Backend (`backend/app/rooms.py`):
+    - `join_room(...)` расширен параметром `session_token`;
+    - для re-join занятого гостевого слота тем же `user_id` теперь обязательно совпадение `session_token` с текущим `guest_session_token`;
+    - без валидного токена возвращается `RoomPermissionError` (403 на уровне API), новый токен не выдается.
+  - Backend API (`backend/app/main.py`):
+    - добавлен `JoinRoomPayload` с опциональным `session_token`;
+    - endpoint `POST /rooms/{room_id}/join` передает `session_token` в доменную проверку;
+    - отмена таймеров (`_cancel_author_close_task`, `_cancel_participant_disconnect`) перенесена после успешного `join`, чтобы не было отмены по неавторизованным попыткам.
+  - Тесты:
+    - `backend/tests/test_room_service.py`:
+      - добавлен тест `test_guest_rejoin_requires_valid_session_token`;
+    - `backend/tests/test_api_room_flow.py`:
+      - helper `_join_room` поддерживает опциональный `session_token`;
+      - добавлен регрессионный тест `test_busy_room_join_cannot_mint_guest_token_by_user_id_only` (воспроизводит сценарий с чтением `guest.user_id` из `GET /rooms/{room_id}` и проверяет, что без proof token re-join отклоняется).
+  - Документация:
+    - обновлены `README.md` и `backend/README.md` с описанием требования proof token для guest re-join.
+- Средства/инструменты:
+  - backend syntax:
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m py_compile app/*.py tests/*.py`
+  - backend tests:
+    - `cd /Users/chernobyl/Codex/Chat/backend && ../backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`
+  - frontend checks:
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run lint`
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run test -- --run`
+    - `cd /Users/chernobyl/Codex/Chat/frontend && npm run build`
+  - restart + smoke:
+    - `cd /Users/chernobyl/Codex/Chat && docker compose up --build -d --force-recreate`
+    - `cd /Users/chernobyl/Codex/Chat && docker compose ps`
+    - `cd /Users/chernobyl/Codex/Chat && curl -sS http://127.0.0.1:8000/health`
+- Результат:
+  - Обход через `guest.user_id` закрыт: без валидного guest session proof токен больше не выдается.
+  - Проверки:
+    - backend unittest: OK (42/42)
+    - backend py_compile: OK
+    - frontend lint: OK
+    - frontend vitest: OK (14/14)
+    - frontend build: OK
+    - docker compose: backend/frontend `Up`
+    - backend `/health`: `{"status":"ok"}`

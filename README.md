@@ -57,7 +57,7 @@ uvicorn app.main:app --reload
 - `GET /rooms/free`
 - `GET /rooms/{room_id}`
 - `POST /rooms` (возвращает `session_token` автора)
-- `POST /rooms/{room_id}/join` (возвращает `session_token` участника)
+- `POST /rooms/{room_id}/join` (возвращает `session_token` участника; если слот уже занят этим же `user_id`, требуется передать текущий `session_token` в payload как proof)
 - `POST /rooms/{room_id}/leave` (принимает `session_token` в JSON body)
 - `WS /ws/rooms/{room_id}?session_token=<token>`
 - `WS /ws/lobby` (уведомления о создании/освобождении/изменении доступности комнат)
